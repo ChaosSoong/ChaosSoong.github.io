@@ -307,22 +307,34 @@
             <p>在学习<a href="http://djangobook.py3k.cn/2.0/" target="_blank" rel="external">django教程</a>的时候,想要在模板中引入css,js等静态文件,鼓捣了有一天多,终于在<a href="http://stackoverflow.com/questions/15491727/include-css-and-javascript-in-my-django-template" target="_blank" rel="external">stackoverflow</a>找到教程,现开始贴代码,记录一下.</p>
 <p>首先在根目录下新建一个staticfiles文件,里面存放需要的各种css,js等文件.</p>
 <p>##然后设置setting.py:</p>
-<p><pre><code><br>PROJECT_DIR = os.path.dirname(<strong>file</strong>)<br>    MEDIA_ROOT = os.path.join(PROJECT_DIR, ‘media’)</code></pre></p>
-<p>MEDIA_URL = ‘/media/‘<br>STATIC_ROOT = os.path.join(PROJECT_DIR, ‘static’)</p>
-<p>STATIC_URL = ‘/static/‘</p>
-<p>STATICFILES_DIRS = (<br>    os.path.join(PROJECT_DIR, ‘staticfiles’),<br>)<br></p>
+<p><pre><code><br>    PROJECT_DIR = os.path.dirname(<strong>file</strong>)<br>    MEDIA_ROOT = os.path.join(PROJECT_DIR, ‘media’)</code></pre></p>
+<pre><code>MEDIA_URL = &apos;/media/&apos;
+STATIC_ROOT = os.path.join(PROJECT_DIR, &apos;static&apos;)
+
+STATIC_URL = &apos;/static/&apos;
+
+STATICFILES_DIRS = (
+os.path.join(PROJECT_DIR, &apos;staticfiles&apos;),
+)
+</code></pre><p></p>
 <p>##url.py:</p>
-<p><pre><code><br>from django.conf.urls import patterns, include, url</code></pre></p>
-<p>from django.conf.urls.static import static</p>
-<p>from django.contrib.staticfiles.urls import staticfiles_urlpatterns</p>
-<p>from mysite import settings</p>
-<p>admin.autodiscover()</p>
-<p>urlpatterns = patterns(‘’,</p>
-<p>   (‘^$’, hello),</p>
-<p>url(r’^dance/$’, dance),</p>
-<p>) + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)</p>
-<p>urlpatterns += staticfiles_urlpatterns()</p>
-<p></p>
+<p><pre><code><br>    from django.conf.urls import patterns, include, url</code></pre></p>
+<pre><code>from django.conf.urls.static import static
+
+from django.contrib.staticfiles.urls import staticfiles_urlpatterns
+
+from mysite import settings
+
+admin.autodiscover()
+
+urlpatterns = patterns(&apos;&apos;,(&apos;^$&apos;, hello),
+
+url(r&apos;^dance/$&apos;, dance),
+
+) + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+urlpatterns += staticfiles_urlpatterns()
+</code></pre><p></p>
 <p>##templates文件夹下的模板文件:</p>
 <p><img src="../../../../imgs/django-html.png" alt="模板"></p>
 <p>新手上路,大神莫喷</p>
