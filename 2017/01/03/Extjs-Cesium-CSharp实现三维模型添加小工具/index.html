@@ -1,0 +1,1449 @@
+<!doctype html>
+
+
+
+  
+
+
+<html class="theme-next pisces use-motion">
+<head>
+  <meta charset="UTF-8"/>
+<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+
+
+
+<meta http-equiv="Cache-Control" content="no-transform" />
+<meta http-equiv="Cache-Control" content="no-siteapp" />
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  <link href="/vendors/fancybox/source/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+
+
+
+
+  
+  
+  
+  
+
+  
+    
+    
+  
+
+  
+    
+      
+    
+
+    
+  
+
+  
+
+  
+    
+      
+    
+
+    
+  
+
+  
+    
+      
+    
+
+    
+  
+
+  
+    
+    
+    <link href="//fonts.googleapis.com/css?family=Monda:300,300italic,400,400italic,700,700italic|Roboto Slab:300,300italic,400,400italic,700,700italic|Lobster Two:300,300italic,400,400italic,700,700italic|PT Mono:300,300italic,400,400italic,700,700italic&subset=latin,latin-ext" rel="stylesheet" type="text/css">
+  
+
+
+
+
+
+
+<link href="/vendors/font-awesome/css/font-awesome.min.css?v=4.4.0" rel="stylesheet" type="text/css" />
+
+<link href="/css/main.css?v=5.0.1" rel="stylesheet" type="text/css" />
+
+
+  <meta name="keywords" content="cesium,JavaScript,open source,Extjs,CSharp," />
+
+
+
+
+
+  <link rel="alternate" href="/atom.xml" title="Chaos's Blog" type="application/atom+xml" />
+
+
+
+
+  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico?v=5.0.1" />
+
+
+
+
+
+
+<meta name="description" content="自从上次批量导出gltf模型后,需求便随之而来,就是在线添加模型,并且能够更改模型的参数,比如大小,位置等等,效仿的是某图的客户端添加二维模型.前端使用的是Extjs4.2,jQuery和三维引擎cesium,后端asp.net mvc.">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Extjs+Cesium+CSharp实现三维模型添加小工具">
+<meta property="og:url" content="http://yoursite.com/2017/01/03/Extjs-Cesium-CSharp实现三维模型添加小工具/index.html">
+<meta property="og:site_name" content="Chaos's Blog">
+<meta property="og:description" content="自从上次批量导出gltf模型后,需求便随之而来,就是在线添加模型,并且能够更改模型的参数,比如大小,位置等等,效仿的是某图的客户端添加二维模型.前端使用的是Extjs4.2,jQuery和三维引擎cesium,后端asp.net mvc.">
+<meta property="og:updated_time" content="2017-11-13T02:45:43.640Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Extjs+Cesium+CSharp实现三维模型添加小工具">
+<meta name="twitter:description" content="自从上次批量导出gltf模型后,需求便随之而来,就是在线添加模型,并且能够更改模型的参数,比如大小,位置等等,效仿的是某图的客户端添加二维模型.前端使用的是Extjs4.2,jQuery和三维引擎cesium,后端asp.net mvc.">
+
+
+
+<script type="text/javascript" id="hexo.configuration">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    scheme: 'Pisces',
+    sidebar: {"position":"left","display":"post"},
+    fancybox: true,
+    motion: true,
+    duoshuo: {
+      userId: 0,
+      author: 'Author'
+    }
+  };
+</script>
+
+
+
+
+  <link rel="canonical" href="http://yoursite.com/2017/01/03/Extjs-Cesium-CSharp实现三维模型添加小工具/"/>
+
+  <title> Extjs+Cesium+CSharp实现三维模型添加小工具 | Chaos's Blog </title>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="en">
+
+  
+
+
+
+
+
+
+
+
+
+
+  
+  
+    
+  
+
+  <div class="container one-collumn sidebar-position-left page-post-detail ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-meta custom-logo">
+  
+
+  <div class="custom-logo-site-title">
+    <a href="/"  class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <span class="site-title">Chaos's Blog</span>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+  <p class="site-subtitle">programming or die</p>
+</div>
+
+<div class="site-nav-toggle">
+  <button>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+  </button>
+</div>
+
+<nav class="site-nav">
+  
+
+  
+    <ul id="menu" class="menu">
+      
+        
+        <li class="menu-item menu-item-home">
+          <a href="/" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />
+            
+            Home
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-th"></i> <br />
+            
+            Categories
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br />
+            
+            Archives
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-tags">
+          <a href="/tags" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-tags"></i> <br />
+            
+            Tags
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-commonweal">
+          <a href="/404.html" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-heartbeat"></i> <br />
+            
+            公益404
+          </a>
+        </li>
+      
+
+      
+        <li class="menu-item menu-item-search">
+          
+            <a href="javascript:;" class="popup-trigger">
+          
+            
+              <i class="menu-item-icon fa fa-search fa-fw"></i> <br />
+            
+            Search
+          </a>
+        </li>
+      
+    </ul>
+  
+
+  
+    <div class="site-search">
+      
+  <div class="popup">
+ <span class="search-icon fa fa-search"></span>
+ <input type="text" id="local-search-input">
+ <div id="local-search-result"></div>
+ <span class="popup-btn-close">close</span>
+</div>
+
+
+    </div>
+  
+</nav>
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal true" itemscope itemtype="http://schema.org/Article">
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">
+            
+            
+              
+                Extjs+Cesium+CSharp实现三维模型添加小工具
+              
+            
+          </h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            <span class="post-meta-item-icon">
+              <i class="fa fa-calendar-o"></i>
+            </span>
+            <span class="post-meta-item-text">Posted on</span>
+            <time itemprop="dateCreated" datetime="2017-01-03T17:04:45+08:00" content="2017-01-03">
+              2017-01-03
+            </time>
+          </span>
+
+          
+            <span class="post-category" >
+              &nbsp; | &nbsp;
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">In</span>
+              
+                <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+                  <a href="/categories/Extjs/" itemprop="url" rel="index">
+                    <span itemprop="name">Extjs</span>
+                  </a>
+                </span>
+
+                
+                
+
+              
+            </span>
+          
+
+          
+            
+              <span class="post-comments-count">
+                &nbsp; | &nbsp;
+                <a href="/2017/01/03/Extjs-Cesium-CSharp实现三维模型添加小工具/#comments" itemprop="discussionUrl">
+                  <span class="post-comments-count ds-thread-count" data-thread-key="2017/01/03/Extjs-Cesium-CSharp实现三维模型添加小工具/" itemprop="commentsCount"></span>
+                </a>
+              </span>
+            
+          
+			
+          
+
+          
+          
+
+          
+        </div>
+      </header>
+    
+
+
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <p>自从上次批量导出gltf模型后,需求便随之而来,就是在线添加模型,并且能够更改模型的参数,比如大小,位置等等,效仿的是某图的客户端添加二维模型.前端使用的是Extjs4.2,jQuery和三维引擎cesium,后端asp.net mvc.<br><a id="more"></a></p>
+<h1 id="前端"><a href="#前端" class="headerlink" title="前端"></a>前端</h1><h2 id="window显示框"><a href="#window显示框" class="headerlink" title="window显示框"></a>window显示框</h2><pre><code>function addModel() {
+if (Ext.getCmp(&apos;modelPanel&apos;) !== null) {
+    Ext.getCmp(&apos;modelPanel&apos;).destroy();
+}
+var modelWindow = Ext.create(&apos;Ext.window.Window&apos;, {
+    title: &apos;添加模型&apos;,
+    width: 820,
+    height: 520,
+    renderTo: Ext.getBody(),
+    plain: true,
+    collapsible: true, //是否可以折叠
+    closable: true,
+    layout: &apos;border&apos;,
+    items: [{
+        region: &apos;west&apos;,
+        xtype: &apos;treepanel&apos;,
+        title: &apos;模型分类&apos;,
+        width: &apos;15%&apos;,
+        store: treestore,
+        rootVisible: false,
+        listeners: {
+            itemclick: function(view, record, item, index, e) {
+                var code = record.raw.code;
+                var store = loadCode(code);
+                var gridPanles = editView(store);
+                var FartherGrid = modelWindow.getComponent(&apos;gridPanel&apos;);
+                FartherGrid.removeAll();
+                //添加面板
+                if (gridPanles != null) {
+                    gridPanles = FartherGrid.add({
+                        xtype: gridPanles,
+                        closable: true
+                    });
+                    gridPanles.getStore().load();
+                }
+            }
+        }
+    }, {
+        margin: &apos;1 1 1 1&apos;,
+        region: &apos;center&apos;,
+        width: &apos;45%&apos;,
+        itemId: &apos;gridPanel&apos;,
+        autoScroll: true,
+        items: [{
+            xtype: &apos;dataview&apos;,
+            width: &apos;40%&apos;,
+            autoScroll: true,
+            itemSelector: &apos;div.thumb-wrap&apos;,
+            tpl: imageTpl,
+        }]
+    }, {
+        xtype: &apos;panel&apos;,
+        region: &apos;east&apos;,
+        itemId: &apos;box1&apos;,
+        width: &apos;40%&apos;,
+        border: false,
+        layout: &apos;fit&apos;,
+        listeners: {
+            show: function(c) {
+                pageInit3d();
+            }
+        },
+        bodyStyle: &apos;background-color:#E5E3DF;&apos;,
+        frame: false,
+        html: &apos;&lt;div id=&quot;mapPic&quot;&gt;&lt;div class=&quot;nav&quot;&gt;&apos; + &apos;&lt;div class=&quot;up&quot; id=&quot;up&quot;&gt;&lt;/div&gt;&lt;div class=&quot;right&quot; id=&quot;right&quot;&gt;&lt;/div&gt;&apos; + &apos;&lt;div class=&quot;down&quot; id=&quot;down&quot;&gt;&lt;/div&gt;&lt;div class=&quot;left&quot; id=&quot;left&quot;&gt;&lt;/div&gt;&apos; + &apos;&lt;div class=&quot;zoom&quot; id=&quot;zoom&quot;&gt;&lt;/div&gt;&lt;div class=&quot;in&quot; id=&quot;in&quot;&gt;&lt;/div&gt;&apos; + &apos;&lt;div class=&quot;out&quot; id=&quot;out&quot;&gt;&lt;/div&gt;&lt;/div&gt;&apos; + &apos;&lt;img id=&quot;view-image3d&quot; src=&quot;&quot; border=&quot;0&quot; style=&quot;cursor: url(/Images/openhand_8_8.cur), default;&quot; &gt; &lt;/div&gt;&apos;
+    }],
+    listeners: {
+        show: function(c) {
+            pageInit3d();
+        }
+    },
+    buttons: [{
+        text: &apos;确认&apos;,
+        handler: function() {
+            modelWindow.destroy();
+            showmodulemessagefn(&quot;双击点选位置添加模型&quot;);
+            $(document).bind(&quot;dblclick&quot;,
+                function(e) {
+                    var NW = new Cesium.Cartesian2(e.pageX, e.pageY);
+                    var pick1 = viewer.scene.globe.pick(viewer.camera.getPickRay(NW), viewer.scene);
+                    //将三维坐标转成地理坐标
+                    var geoPt1 = viewer.scene.globe.ellipsoid.cartesianToCartographic(pick1);
+                    var gaodu = viewer.scene.globe.getHeight(geoPt1).toFixed(5);
+                    //地理坐标转换为经纬度坐标
+                    var point1 = [geoPt1.longitude / Math.PI * 180, geoPt1.latitude / Math.PI * 180];
+                    // console.log(point1+&quot;,&quot;+gaodu);
+                    var viewModel = {
+                        jingdu: point1[0].toFixed(6),
+                        weidu: point1[1].toFixed(6),
+                        gaodu: gaodu,
+                        heng: 0,
+                        zong: 0,
+                        zzz: 0,
+                        size: 1
+                    };
+                    // Convert the viewModel members into knockout observables.
+                    Cesium.knockout.track(viewModel);
+                    createDiv = document.createElement(&quot;div&quot;);
+                    createDiv.innerHTML = htmlStr;
+                    createDiv.id = &quot;toolbar&quot;;
+                    createDiv.style.position = &quot;absolute&quot;;
+                    createDiv.style.right = &quot;5px&quot;;
+                    createDiv.style.top = &quot;38px&quot;;
+                    document.body.appendChild(createDiv);
+                    var toolbar = document.getElementById(&apos;toolbar&apos;);
+                    Cesium.knockout.applyBindings(viewModel, toolbar);
+                    var jingdu = $(&quot;#jingdu&quot;)[0].value;
+                    var weidu = $(&quot;#weidu&quot;)[0].value;
+                    var gaodu = $(&quot;#height&quot;)[0].value;
+                    var heng = $(&quot;#heng&quot;)[0].value;
+                    var zong = $(&quot;#zong&quot;)[0].value;
+                    var zzz = $(&quot;#xie&quot;)[0].value;
+                    var scale = $(&quot;#size&quot;)[0].value;
+                    var idid = uuid();
+                    var modelMatrix = Cesium.Cartesian3.fromDegrees(point1[0], point1[1], gaodu);
+                    if (typeof(entity) != &apos;undefined&apos;) { viewer.entities.remove(entity); }
+                    var entity = AddModelss(idid, modelpath, modelMatrix, heng, zong, zzz, scale);
+                    $(&quot;input&quot;).change(function() {
+                        scale = $(&quot;#size&quot;)[0].value;
+                        jingdu = $(&quot;#jingdu&quot;)[0].value;
+                        weidu = $(&quot;#weidu&quot;)[0].value;
+                        gaodu = $(&quot;#height&quot;)[0].value;
+                        heng = $(&quot;#heng&quot;)[0].value;
+                        zong = $(&quot;#zong&quot;)[0].value;
+                        zzz = $(&quot;#xie&quot;)[0].value;
+                        modelMatrix = Cesium.Cartesian3.fromDegrees(jingdu, weidu, gaodu);
+                        var orientation = Cesium.Transforms.headingPitchRollQuaternion(modelMatrix, heng, zong, zzz);
+                        entity.model.scale = scale;
+                        entity.position = modelMatrix;
+                        entity.orientation = orientation;
+                    });
+                    $(&quot;#no&quot;).click(function() {
+                        viewer.entities.remove(entity);
+                        var toolbar = document.getElementById(&apos;toolbar&apos;);
+                        toolbar.parentNode.removeChild(toolbar);
+                    });
+                    $(&quot;#yes&quot;).click(function() {
+                        Ext.Ajax.request({
+                            url: &apos;/TDGis/uploadModel&apos;,
+                            params: {
+                                x: jingdu,
+                                y: weidu,
+                                z: gaodu,
+                                heng: heng,
+                                zong: zong,
+                                xie: zzz,
+                                scale: scale,
+                                id: id,
+                                idid: idid
+                            },
+                            method: &apos;POST&apos;,
+                            timeout: 3000,
+                            success: function(response, opts) {
+                                // Ext.Msg.alert(&apos;提示&apos;, &apos;添加模型成功。&apos;);
+                                var toolbar = document.getElementById(&apos;toolbar&apos;);
+                                toolbar.parentNode.removeChild(toolbar);
+                            }
+                        });
+                    });
+                    $(this).unbind(e);
+                });
+        }
+    }, {
+        text: &apos;取消&apos;,
+        handler: function() {
+            modelWindow.destroy();
+        }
+    }]
+}).show();
+}
+</code></pre><h2 id="window中的方法"><a href="#window中的方法" class="headerlink" title="window中的方法"></a>window中的方法</h2><p>1.最左侧的tree</p>
+<pre><code>var treestore = new Ext.data.TreeStore({
+proxy: {
+    type: &apos;ajax&apos;,
+    url: &apos;/TDGis/modelType&apos;,
+    reader: &quot;json&quot;
+},
+autoLoad: true
+});
+</code></pre><p>2.单击模型树生成模型列表</p>
+<pre><code>//store
+function loadCode(code) {
+gridstore = Ext.create(&apos;Ext.data.Store&apos;, {
+    fields: [&apos;name1&apos;, &apos;thumbnailpath&apos;, &apos;gltfsize&apos;, &apos;modelpath&apos;, &apos;id&apos;],
+    proxy: {
+        type: &apos;ajax&apos;,
+        reader: &apos;json&apos;,
+        url: &quot;/TDGis/modelGrid?code=&quot; + code
+    },
+    //extraParams:{&quot;code&quot;:&quot;01&quot;},
+    autoLoad: true
+});
+return gridstore;
+}
+
+//dataview
+function editView(store) {
+var selectLineGridPanel = Ext.create(&apos;Ext.view.View&apos;, {
+    store: store,
+    tpl: imageTpl,
+    itemSelector: &apos;div.thumb-wrap&apos;, //store tpl itemSelector必选项
+    emptyText: &apos;暂无图片&apos;,
+    margin: &apos;1 1 1 1&apos;,
+    multiSelect: true,
+    height: 310,
+    autoScroll: false,
+    overItemCls: &apos;x-item-over&apos;,
+    trackOver: true,
+    listeners: {
+        itemclick: function(view, record, item, index, e) {
+            thumbnailpath = record.raw.thumbnailpath;
+            modelpath = record.raw.modelpath;
+            id = record.raw.id;
+            gltfsize = record.raw.gltfsize;
+            //动态更新只需要获取到刚才建立的box的dom的src  
+            var image = Ext.get(&apos;view-image3d&apos;);
+            image.dom.src = thumbnailpath;
+        }
+    }
+});
+return selectLineGridPanel;
+}
+);
+</code></pre><p>dataview 的tpl模板,es6语法 ``</p>
+<pre><code>var imageTpl = new Ext.XTemplate(
+&apos;&lt;tpl for=&quot;.&quot;&gt;&apos;,
+&apos;&lt;div style=&quot;float: left;margin: 4px; margin-right: 0;padding: 5px&quot; class=&quot;thumb-wrap&quot;&gt;&apos;,
+&apos;&lt;img src=&quot;{thumbnailpath}&quot; width=&quot;70&quot; height=&quot;70&quot;&gt;&apos;,
+&apos;&lt;span style=&quot;text-align: center;display: block;overflow: hidden;&quot; class=&quot;x-editable&quot;&gt;大小:{gltfsize}&lt;/span&gt;&apos;,
+&apos;&lt;/div&gt;&apos;,
+&apos;&lt;/tpl&gt;&apos;
+</code></pre><p>3.添加模型的提示框(出现三秒后消失)</p>
+<pre><code>function showmodulemessagefn(message) {
+//获取显示区域的大小
+var width = Ext.getBody().getViewSize().width;
+var trim = &apos;&amp;nbsp;&amp;nbsp;&apos;;
+//设置div中显示的文字，并渐变显示，然后三秒后渐变隐藏
+$(&quot;#showmodulemessage&quot;).html(trim + message + trim).show(300).delay(3000).hide(300);
+//获取有多少个文字，然后根据文字多少算出中间宽度，加40上因为左右各两个空格
+var messagewidth = message.length * 10 + 40;
+//设置提示框的显示位置，不平在屏幕中间，垂直在工具条下面。
+$(&quot;#showmodulemessage&quot;).css({
+    left: width / 2 - messagewidth,
+    top: 110
+});
+}
+</code></pre><p>4.动态添加div节点,用于显示调整模型信息</p>
+<pre><code>//多行字符串
+function hereDoc(f) {　
+return f.toString().replace(/^[^\/]+\/\*!?\s?/, &apos;&apos;).replace(/\*\/[^\/]+$/, &apos;&apos;);
+}
+var htmlStr = hereDoc(function() {
+/*
+&lt;table&gt;
+    &lt;tbody&gt;&lt;tr&gt;
+        &lt;td width=&quot;65px&quot;&gt;&lt;font color=&quot;white&quot;&gt;经度&lt;/font&gt;&lt;/td&gt;
+        &lt;td&gt;
+            &lt;input id=&quot;jingdu&quot; type=&quot;range&quot; min=&quot;-180&quot; max=&quot;180&quot; step=&quot;0.000001&quot;  data-bind=&quot;value: jingdu, valueUpdate: &apos;input&apos;&quot;&gt;
+            &lt;input type=&quot;text&quot; size=&quot;5&quot; data-bind=&quot;value: jingdu&quot;&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+        &lt;td&gt;&lt;font color=&quot;white&quot;&gt;纬度&lt;/font&gt;&lt;/td&gt;
+        &lt;td&gt;
+            &lt;input id=&quot;weidu&quot; type=&quot;range&quot; min=&quot;-90&quot; max=&quot;90&quot; step=&quot;0.000001&quot; data-bind=&quot;value: weidu, valueUpdate: &apos;input&apos;&quot;&gt;
+            &lt;input type=&quot;text&quot; size=&quot;5&quot; data-bind=&quot;value: weidu&quot;&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+        &lt;td&gt;&lt;font color=&quot;white&quot;&gt;高度&lt;/font&gt;&lt;/td&gt;
+        &lt;td&gt;
+            &lt;input id=&quot;height&quot; type=&quot;range&quot; min=&quot;-50&quot; max=&quot;1000&quot; step=&quot;0.01&quot; data-bind=&quot;value: gaodu, valueUpdate: &apos;input&apos;&quot;&gt;
+            &lt;input type=&quot;text&quot; size=&quot;5&quot; data-bind=&quot;value: gaodu&quot;&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+        &lt;td&gt;&lt;font color=&quot;white&quot;&gt;横向旋转&lt;font&gt;&lt;/td&gt;
+        &lt;td&gt;
+            &lt;input id=&quot;heng&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;7&quot; step=&quot;0.0001&quot; data-bind=&quot;value: heng, valueUpdate: &apos;input&apos;&quot;&gt;
+            &lt;input type=&quot;text&quot; size=&quot;5&quot; data-bind=&quot;value: heng&quot;&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+        &lt;td&gt;&lt;font color=&quot;white&quot;&gt;纵向旋转&lt;/font&gt;&lt;/td&gt;
+        &lt;td&gt;
+            &lt;input id=&quot;zong&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;7&quot; step=&quot;0.0001&quot; data-bind=&quot;value: zong, valueUpdate: &apos;input&apos;&quot;&gt;
+            &lt;input type=&quot;text&quot; size=&quot;5&quot; data-bind=&quot;value: zong&quot;&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+        &lt;td&gt;&lt;font color=&quot;white&quot;&gt;斜旋转&lt;font&gt;&lt;/td&gt;
+        &lt;td&gt;
+            &lt;input id=&quot;xie&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;7&quot; step=&quot;0.0001&quot; data-bind=&quot;value: zzz, valueUpdate: &apos;input&apos;&quot;&gt;
+            &lt;input type=&quot;text&quot; size=&quot;5&quot; data-bind=&quot;value: zzz&quot;&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+        &lt;td&gt;&lt;font color=&quot;white&quot;&gt;大小&lt;font&gt;&lt;/td&gt;
+        &lt;td&gt;
+            &lt;input id=&quot;size&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;50&quot; step=&quot;0.0001&quot; value = &quot;5&quot; data-bind=&quot;value: size, valueUpdate: &apos;input&apos;&quot;&gt;
+            &lt;input type=&quot;text&quot; size=&quot;5&quot; value = &quot;5&quot; data-bind=&quot;value: size&quot;&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+
+        &lt;td&gt;
+            &lt;button id=&quot;yes&quot; class=&quot;cesium-button1&quot;&gt;添加&lt;/button&gt;
+        &lt;/td&gt;
+        &lt;td&gt;
+            &lt;button id=&quot;no&quot; class=&quot;cesium-button1&quot;&gt;取消&lt;/button&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+&lt;/tbody&gt;&lt;/table&gt;
+*/
+});
+</code></pre><p>5.生成唯一值</p>
+<pre><code>//生成UUID
+function uuid() {
+var s = [];
+var hexDigits = &quot;0123456789abcdef&quot;;
+for (var i = 0; i &lt; 36; i++) {
+    s[i] = hexDigits.substr(Math.floor(Math.random() * 0x10), 1);
+}
+s[14] = &quot;4&quot;; // bits 12-15 of the time_hi_and_version field to 0010
+s[19] = hexDigits.substr((s[19] &amp; 0x3) | 0x8, 1); // bits 6-7 of the clock_seq_hi_and_reserved to 01
+s[8] = s[13] = s[18] = s[23] = &quot;-&quot;;
+uuid1 = s.join(&quot;&quot;);
+return uuid1;
+}
+</code></pre><p>6.添加模型的方法</p>
+<pre><code>function AddModelss(id, modelUrl, center, zzz, yyy, xxx, scale) {
+var modelMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(center);
+// var position = Cesium.Cartesian3.fromDegrees(-123.0744619, 44.0503706); //位置  
+var heading = Cesium.Math.toRadians(zzz); //绕垂直于地心的轴旋转  摇头 
+var pitch = Cesium.Math.toRadians(yyy); //绕纬度线旋转  点头
+var roll = Cesium.Math.toRadians(xxx); //绕经度线旋转  歪头
+var orientation = Cesium.Transforms.headingPitchRollQuaternion(center, heading, pitch, roll);
+var entity = viewer.entities.add({
+    id: id,
+    position: center,
+    orientation: orientation,
+    model: {
+        uri: modelUrl,
+        scale: scale
+    }
+});
+return entity;
+}
+</code></pre><p>7.图片操作方法</p>
+<pre><code>/**  
+ * 初始化  
+ */
+function pageInit3d() {
+var image = Ext.get(&apos;view-image3d&apos;);
+if (image !== null) {
+    Ext.get(&apos;view-image3d&apos;).on({
+        &apos;mousedown&apos;: { fn: function() { this.setStyle(&apos;cursor&apos;, &apos;url(/Images/openhand_8_8.cur),default;&apos;); }, scope: image },
+        &apos;mouseup&apos;: { fn: function() { this.setStyle(&apos;cursor&apos;, &apos;url(/Images/openhand_8_8.cur),move;&apos;); }, scope: image },
+        &apos;dblclick&apos;: {
+            fn: function() {
+                zoom3d(image, true, 1.2);
+            }
+        }
+    });
+    new Ext.dd.DD(image, &apos;pic&apos;);
+    //image.center();//图片居中   
+    //获得原始尺寸   
+    image.osize = {
+        width: image.getWidth(),
+        height: image.getHeight()
+    };
+    Ext.get(&apos;up&apos;).on(&apos;click&apos;, function() { imageMove3d(&apos;up&apos;, image); }); //向上移动   
+    Ext.get(&apos;down&apos;).on(&apos;click&apos;, function() { imageMove3d(&apos;down&apos;, image); }); //向下移动   
+    Ext.get(&apos;left&apos;).on(&apos;click&apos;, function() { imageMove3d(&apos;left&apos;, image); }); //左移   
+    Ext.get(&apos;right&apos;).on(&apos;click&apos;, function() { imageMove3d(&apos;right&apos;, image); }); //右移动   
+    Ext.get(&apos;in&apos;).on(&apos;click&apos;, function() { zoom3d(image, true, 1.5); }); //放大   
+    Ext.get(&apos;out&apos;).on(&apos;click&apos;, function() { zoom3d(image, false, 1.5); }); //缩小   
+    Ext.get(&apos;zoom&apos;).on(&apos;click&apos;, function() { image.center(); }); //还原   
+}
+}
+
+/**  
+ * 图片移动  
+ */
+function imageMove3d(direction, el) {
+el.move(direction, 50, true);
+}
+
+/**  
+ *   
+ * @param el 图片对象  
+ * @param type true放大,false缩小  
+ * @param offset 量  
+ */
+function zoom3d(el, type, offset) {
+var width = el.getWidth();
+var height = el.getHeight();
+var xy = el.getXY();
+var nwidth = type ? (width * offset) : (width / offset);
+var nheight = type ? (height * offset) : (height / offset);
+var left = type ? -((nwidth - width) / 2) : ((width - nwidth) / 2);
+var top = type ? -((nheight - height) / 2) : ((height - nheight) / 2);
+el.animate({
+    from: {
+        x: xy[0],
+        y: xy[1],
+        height: height,
+        width: width,
+    },
+    to: {
+        //left: left,
+        //top: top,
+        x: xy[0] + left,
+        y: xy[1] + top,
+        height: nheight,
+        width: nwidth
+    }
+});
+}
+
+/**  
+ * 图片还原  
+*/
+function restore3d(el) {
+var size = el.osize;
+//自定义回调函数   
+function center(el, callback) {
+    el.center();
+    callback(el);
+}
+el.fadeOut({
+    callback: function() {
+        el.setSize(size.width, size.height, {
+            callback: function() {
+                center(el, function(ee) { //调用回调   
+                    ee.fadeIn();
+                });
+            }
+        });
+    }
+});
+}
+</code></pre><h1 id="后端-asp-net-mvc"><a href="#后端-asp-net-mvc" class="headerlink" title="后端(asp.net mvc)"></a>后端(asp.net mvc)</h1><p>1.模型树</p>
+<pre><code>public ActionResult modelType()
+    {
+        List&lt;modelType&gt; dataList = new List&lt;modelType&gt;();
+        gasgisEntities db = new gasgisEntities();
+        string selectsql = &quot;SELECT distinct code FROM public.t_3dmodels order by code&quot;;
+        var ssqueryss = db.Database.SqlQuery&lt;modelType&gt;(selectsql);
+        List&lt;modelType&gt; kkk = ssqueryss.ToList();
+        for (var i = 0; i &lt; kkk.Count; i++)
+        {
+            switch (kkk[i].code)
+            {
+                case &quot;01&quot;: modelType daolu = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;道路&quot;,
+                    leaf = true
+                }; dataList.Add(daolu); break;
+                case &quot;03&quot;: modelType gongchang = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;工厂&quot;,
+                    leaf = true
+                }; dataList.Add(gongchang); break;
+                case &quot;02&quot;: modelType jumin = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;居民楼&quot;,
+                    leaf = true
+                }; dataList.Add(jumin); break;
+                case &quot;04&quot;: modelType shangye = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;商业楼&quot;,
+                    leaf = true
+                }; dataList.Add(shangye); break;
+                case &quot;05&quot;: modelType weiqiang = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;围墙&quot;,
+                    leaf = true
+                }; dataList.Add(weiqiang); break;
+                case &quot;06&quot;: modelType zhengfu = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;政府&quot;,
+                    leaf = true
+                }; dataList.Add(zhengfu); break;
+                case &quot;07&quot;: modelType others = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;其他建筑&quot;,
+                    leaf = true
+                }; dataList.Add(others); break;
+                case &quot;08&quot;: modelType caoping = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;草坪&quot;,
+                    leaf = true
+                }; dataList.Add(caoping); break;
+                case &quot;09&quot;: modelType huachi = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;花池&quot;,
+                    leaf = true
+                }; dataList.Add(huachi); break;
+                case &quot;10&quot;: modelType lvhuadai = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;绿化带&quot;,
+                    leaf = true
+                }; dataList.Add(lvhuadai); break;
+                case &quot;11&quot;: modelType shu = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;树&quot;,
+                    leaf = true
+                }; dataList.Add(shu); break;
+                case &quot;12&quot;: modelType qita = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;其他设施&quot;,
+                    leaf = true
+                }; dataList.Add(qita); break;
+            }
+        }
+        JsonResult result = new JsonResult();
+        result.Data = dataList;
+        result.JsonRequestBehavior = JsonRequestBehavior.AllowGet;
+        return result;
+    }
+</code></pre><p>2.模型列表</p>
+<pre><code>public ActionResult modelGrid(string code )
+    {
+        gasgisEntities db = new gasgisEntities();
+        string selectsql = &quot;&quot;;
+        if (code == null || code == &quot;&quot;)
+        {
+            selectsql = &quot;SELECT id,name1,modelpath,thumbnailpath,gltfsize FROM public.t_3dmodels order by order1&quot;;
+        }
+        else
+        {
+            selectsql = &quot;SELECT id,name1,modelpath,thumbnailpath,gltfsize FROM public.t_3dmodels where code =&apos;&quot; + code + &quot;&apos; order by order1&quot;;
+        }
+        var ssqueryss = db.Database.SqlQuery&lt;modelGrid&gt;(selectsql);
+        List&lt;modelGrid&gt; kkk = ssqueryss.ToList();
+        JsonResult result = new JsonResult();
+        result.Data = kkk;
+        result.JsonRequestBehavior = JsonRequestBehavior.AllowGet;//必选允许get请求
+        return result;
+    }
+</code></pre><p>3.上传模型</p>
+<pre><code>public string uploadModel(string idid, string id, decimal x, decimal y, decimal z, string heng, string zong, string xie, string scale)
+    {
+        gasgisEntities db = new gasgisEntities();
+        string ins = &quot;insert into public.t_3dgismodels (idid,id,x,y,z,heng,zong,xie,scale) values (&apos;&quot; + idid + &quot;&apos;,&apos;&quot; + id + &quot;&apos;,&quot; + x + &quot;,&quot; + y + &quot;,&quot; + z + &quot;,&apos;&quot; + heng + &quot;&apos;,&apos;&quot; + zong + &quot;&apos;,&apos;&quot; + xie + &quot;&apos;,&apos;&quot; + scale + &quot;&apos;)&quot;; ;
+        db.Database.ExecuteSqlCommand(ins);
+        modelInd(); 
+        return &quot;ok&quot;;
+    }
+    生成索引,用于动态加载的剔除模型,加快速度
+    public void modelInd()
+    {
+        gasgisEntities saveSystemCodeDB = new gasgisEntities();
+        string insql = &quot;UPDATE public.t_3dgismodels SET ind=&apos;x:&apos;|| CAST(TRUNC(x,4) as varchar) || &apos;,&apos; || &apos;y:&apos; || CAST(TRUNC(y,4) as varchar) ;&quot;;
+        saveSystemCodeDB.Database.ExecuteSqlCommand(insql);
+        //return &quot;ok&quot;;
+    }
+</code></pre><p>数据库使用的是postgisgreSQL,后台使用的asp.net提供数据,前端使用了jQuery,Extjs的各种信息展示,三维cesium引擎,一切都是开源免费的产品,这样一个功能,很好的展示了从后台到前端是如何工作的,也是入职以来的第一个实现的功能,虽然小,但是很有意义.</p>
+
+      
+    </div>
+
+    <div>
+      
+        
+<div id="wechat_subscriber" style="display: block; padding: 10px 0; margin: 20px auto; width: 100%; text-align: center">
+    <img id="wechat_subscriber_qcode" src="https://ChaosSoong.github.io/imgs/WeChat/WeChat.jpg" alt="Chaos Soong wechat" style="width: 200px; max-width: 100%;"/>
+    <div>你敢扫试试? 试试就试试!</div>
+</div>
+
+
+      
+    </div>
+
+    <div>
+      
+        
+
+      
+    </div>
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/cesium-JavaScript-open-source-Extjs-CSharp/" rel="tag">#cesium,JavaScript,open source,Extjs,CSharp</a>
+          
+        </div>
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/2016/12/10/AutoCAD-DotNET二次开发-读取excel画简单的图形/" rel="next" title="AutoCAD DotNET二次开发,读取excel画简单的图形">
+                <i class="fa fa-chevron-left"></i> AutoCAD DotNET二次开发,读取excel画简单的图形
+              </a>
+            
+          </div>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/2017/01/05/AutoCAD实用小技巧/" rel="prev" title="AutoCAD实用小技巧">
+                AutoCAD实用小技巧 <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </article>
+
+
+
+    <div class="post-spread">
+      
+    </div>
+  </div>
+
+
+          </div>
+          
+
+
+          
+  <div class="comments" id="comments">
+    
+      <div class="ds-thread" data-thread-key="2017/01/03/Extjs-Cesium-CSharp实现三维模型添加小工具/"
+           data-title="Extjs+Cesium+CSharp实现三维模型添加小工具" data-url="http://yoursite.com/2017/01/03/Extjs-Cesium-CSharp实现三维模型添加小工具/">
+      </div>
+    
+  </div>
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap" >
+            Table of Contents
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview">
+            Overview
+          </li>
+        </ul>
+      
+
+      <section class="site-overview sidebar-panel ">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+          <img class="site-author-image" itemprop="image"
+               src="/images/author.jpg"
+               alt="Chaos Soong" />
+          <p class="site-author-name" itemprop="name">Chaos Soong</p>
+          <p class="site-description motion-element" itemprop="description">学习管理 生活日常</p>
+        </div>
+        <nav class="site-state motion-element">
+          <div class="site-state-item site-state-posts">
+            <a href="/archives">
+              <span class="site-state-item-count">32</span>
+              <span class="site-state-item-name">posts</span>
+            </a>
+          </div>
+
+          
+            <div class="site-state-item site-state-categories">
+              <a href="/categories">
+                <span class="site-state-item-count">16</span>
+                <span class="site-state-item-name">categories</span>
+              </a>
+            </div>
+          
+
+          
+            <div class="site-state-item site-state-tags">
+              <a href="/tags">
+                <span class="site-state-item-count">27</span>
+                <span class="site-state-item-name">tags</span>
+              </a>
+            </div>
+          
+
+        </nav>
+
+        
+          <div class="feed-link motion-element">
+            <a href="/atom.xml" rel="alternate">
+              <i class="fa fa-rss"></i>
+              RSS
+            </a>
+          </div>
+        
+
+        <div class="links-of-author motion-element">
+          
+            
+              <span class="links-of-author-item">
+                <a href="https://github.com/ChaosSoong" target="_blank" title="GitHub">
+                  
+                    <i class="fa fa-fw fa-github"></i>
+                  
+                  GitHub
+                </a>
+              </span>
+            
+              <span class="links-of-author-item">
+                <a href="http://weibo.com/u/3387721970" target="_blank" title="Weibo">
+                  
+                    <i class="fa fa-fw fa-weibo"></i>
+                  
+                  Weibo
+                </a>
+              </span>
+            
+              <span class="links-of-author-item">
+                <a href="https://www.zhihu.com/people/super_chao" target="_blank" title="Zhihu">
+                  
+                    <i class="fa fa-fw fa-globe"></i>
+                  
+                  Zhihu
+                </a>
+              </span>
+            
+              <span class="links-of-author-item">
+                <a href="https://www.facebook.com/profile.php?id=100012243847192" target="_blank" title="Facebook">
+                  
+                    <i class="fa fa-fw fa-facebook"></i>
+                  
+                  Facebook
+                </a>
+              </span>
+            
+          
+        </div>
+
+        
+        
+
+        
+        
+          <div class="links-of-blogroll motion-element links-of-blogroll-inline">
+            <div class="links-of-blogroll-title">
+              <i class="fa  fa-fw fa-globe"></i>
+              py交易
+            </div>
+            <ul class="links-of-blogroll-list">
+              
+                <li class="links-of-blogroll-item">
+                  <a href="http://www.feilong.tech/" title="feilong" target="_blank">feilong</a>
+                </li>
+              
+            </ul>
+          </div>
+        
+
+      </section>
+
+      
+        <section class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+            
+              
+            
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#前端"><span class="nav-number">1.</span> <span class="nav-text">前端</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#window显示框"><span class="nav-number">1.1.</span> <span class="nav-text">window显示框</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#window中的方法"><span class="nav-number">1.2.</span> <span class="nav-text">window中的方法</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#后端-asp-net-mvc"><span class="nav-number">2.</span> <span class="nav-text">后端(asp.net mvc)</span></a></li></ol></div>
+            
+          </div>
+        </section>
+      
+
+    </div>
+  </aside>
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright" >
+  
+  &copy;  2015 - 
+  <span itemprop="copyrightYear">2017</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Chaos Soong</span>
+</div>
+
+<div class="powered-by">
+  Powered by <a class="theme-link" href="https://hexo.io">Hexo</a>
+</div>
+<script async src="//dn-lbstatics.qbox.me/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+            <span id="busuanzi_container_site_pv">本站总访问量<span id="busuanzi_value_site_pv"></span>次</span> &nbsp;&nbsp; | &nbsp;&nbsp;  </lable>
+<div class="theme-info">
+  Theme -
+  <a class="theme-link" href="https://github.com/iissnan/hexo-theme-next">
+    NexT.Pisces
+  </a>
+</div>
+
+        
+
+        
+      </div>
+    </footer>
+
+    <div class="back-to-top">
+      <i class="fa fa-arrow-up"></i>
+    </div>
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+  
+  <script type="text/javascript" src="/vendors/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script type="text/javascript" src="/vendors/fastclick/lib/fastclick.min.js?v=1.0.6"></script>
+
+  
+  <script type="text/javascript" src="/vendors/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+
+  
+  <script type="text/javascript" src="/vendors/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/vendors/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script type="text/javascript" src="/vendors/fancybox/source/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/utils.js?v=5.0.1"></script>
+
+  <script type="text/javascript" src="/js/src/motion.js?v=5.0.1"></script>
+
+
+
+  
+  
+
+
+  <script type="text/javascript" src="/js/src/affix.js?v=5.0.1"></script>
+
+  <script type="text/javascript" src="/js/src/schemes/pisces.js?v=5.0.1"></script>
+
+
+
+  
+  <script type="text/javascript" src="/js/src/scrollspy.js?v=5.0.1"></script>
+<script type="text/javascript" src="/js/src/post-details.js?v=5.0.1"></script>
+
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/bootstrap.js?v=5.0.1"></script>
+
+
+
+  
+
+  
+    
+  
+
+  <script type="text/javascript">
+    var duoshuoQuery = {short_name:"likeu"};
+    
+  </script>
+	
+    <script src="/js/src/embed.js"></script>
+
+  
+    
+    <script src="/vendors/ua-parser-js/dist/ua-parser.min.js?v=0.7.9"></script>
+    <script src="/js/src/hook-duoshuo.js"></script>
+  
+
+
+
+
+
+
+  
+  
+  <script type="text/javascript">
+    // Popup Window;
+    var isfetched = false;
+    // Search DB path;
+    var search_path = "search.xml";
+    if (search_path.length == 0) {
+       search_path = "search.xml";
+    }
+    var path = "/" + search_path;
+    // monitor main search box;
+
+    function proceedsearch() {
+      $("body").append('<div class="popoverlay">').css('overflow', 'hidden');
+      $('.popup').toggle();
+
+    }
+    // search function;
+    var searchFunc = function(path, search_id, content_id) {
+    'use strict';
+    $.ajax({
+        url: path,
+        dataType: "xml",
+        async: true,
+        success: function( xmlResponse ) {
+            // get the contents from search data
+            isfetched = true;
+            $('.popup').detach().appendTo('.header-inner');
+            var datas = $( "entry", xmlResponse ).map(function() {
+                return {
+                    title: $( "title", this ).text(),
+                    content: $("content",this).text(),
+                    url: $( "url" , this).text()
+                };
+            }).get();
+            var $input = document.getElementById(search_id);
+            var $resultContent = document.getElementById(content_id);
+            $input.addEventListener('input', function(){
+                var matchcounts = 0;
+                var str='<ul class=\"search-result-list\">';
+                var keywords = this.value.trim().toLowerCase().split(/[\s\-]+/);
+                $resultContent.innerHTML = "";
+                if (this.value.trim().length > 1) {
+                // perform local searching
+                datas.forEach(function(data) {
+                    var isMatch = true;
+                    var content_index = [];
+                    var data_title = data.title.trim().toLowerCase();
+                    var data_content = data.content.trim().replace(/<[^>]+>/g,"").toLowerCase();
+                    var data_url = data.url;
+                    var index_title = -1;
+                    var index_content = -1;
+                    var first_occur = -1;
+                    // only match artiles with not empty titles and contents
+                    if(data_title != '' && data_content != '') {
+                        keywords.forEach(function(keyword, i) {
+                            index_title = data_title.indexOf(keyword);
+                            index_content = data_content.indexOf(keyword);
+                            if( index_title < 0 && index_content < 0 ){
+                                isMatch = false;
+                            } else {
+                                if (index_content < 0) {
+                                    index_content = 0;
+                                }
+                                if (i == 0) {
+                                    first_occur = index_content;
+                                }
+                            }
+                        });
+                    }
+                    // show search results
+                    if (isMatch) {
+                        matchcounts += 1;
+                        str += "<li><a href='"+ data_url +"' class='search-result-title'>"+ data_title +"</a>";
+                        var content = data.content.trim().replace(/<[^>]+>/g,"");
+                        if (first_occur >= 0) {
+                            // cut out 100 characters
+                            var start = first_occur - 20;
+                            var end = first_occur + 80;
+                            if(start < 0){
+                                start = 0;
+                            }
+                            if(start == 0){
+                                end = 50;
+                            }
+                            if(end > content.length){
+                                end = content.length;
+                            }
+                            var match_content = content.substring(start, end);
+                            // highlight all keywords
+                            keywords.forEach(function(keyword){
+                                var regS = new RegExp(keyword, "gi");
+                                match_content = match_content.replace(regS, "<b class=\"search-keyword\">"+keyword+"</b>");
+                            });
+
+                            str += "<p class=\"search-result\">" + match_content +"...</p>"
+                        }
+                        str += "</li>";
+                    }
+                })};
+                str += "</ul>";
+                if (matchcounts == 0) { str = '<div id="no-result"><i class="fa fa-frown-o fa-5x" /></div>' }
+                if (keywords == "") { str = '<div id="no-result"><i class="fa fa-search fa-5x" /></div>' }
+                $resultContent.innerHTML = str;
+            });
+            proceedsearch();
+        }
+    });}
+
+    // handle and trigger popup window;
+    $('.popup-trigger').click(function(e) {
+      e.stopPropagation();
+      if (isfetched == false) {
+        searchFunc(path, 'local-search-input', 'local-search-result');
+      } else {
+        proceedsearch();
+      };
+
+    });
+
+    $('.popup-btn-close').click(function(e){
+      $('.popup').hide();
+      $(".popoverlay").remove();
+      $('body').css('overflow', '');
+    });
+    $('.popup').click(function(e){
+      e.stopPropagation();
+    });
+  </script>
+
+
+  
+
+  
+
+  
+<script type="text/javascript" async src="//push.zhanzhang.baidu.com/push.js">
+</script>
+
+
+</body>
+</html>

@@ -1,0 +1,2677 @@
+<?xml version="1.0" encoding="utf-8"?>
+<search>
+  
+  
+    
+    <entry>
+      <title><![CDATA[csharp rsa密钥加密与java交互]]></title>
+      <url>http://yoursite.com/2017/09/15/csharp-rsa%E5%AF%86%E9%92%A5%E5%8A%A0%E5%AF%86%E4%B8%8Ejava%E4%BA%A4%E4%BA%92/</url>
+      <content type="html"><![CDATA[<p>自从到了深圳以后一直在忙工作，都没有空闲时间来写点什么(其实还不是因懒)前两天接手了一个项目，一个身份验证，输入身份证和姓名来验证是否认证成功，(感觉对方公司挺厉害的，需要接入公安局的数据库)talk is cheap ,show your code</p>
+<a id="more"></a>
+<h2 id="base64编码"><a href="#base64编码" class="headerlink" title="base64编码"></a>base64编码</h2><pre><code>var data = new { terminal_id = terminal_id, trade_date = &quot;20170913153750&quot;, trans_id = &quot;14744392884941238&quot;, industry_type = &quot;A1&quot;, id_holder = &quot;your_name&quot;, is_photo = &quot;photo&quot;, id_card =&quot;your_id_card&quot;, member_id = member_id };
+        var strJson = Newtonsoft.Json.JsonConvert.SerializeObject(data);
+        //base64编码字符串
+        string base64str = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(strJson)); 
+</code></pre><p>其中用到了一个库，将对象序列化。</p>
+<h2 id="rsa加密"><a href="#rsa加密" class="headerlink" title="rsa加密"></a>rsa加密</h2><p>根据密钥密码读取公钥和私钥信息：</p>
+<pre><code>X509Certificate2 cert = new X509Certificate2(pfxPath, priKeyPass, X509KeyStorageFlags.Exportable |X509KeyStorageFlags.PersistKeySet);
+            string prikey = cert.PrivateKey.ToXmlString(true);//公钥
+            string pubkey = cert.PublicKey.Key.ToXmlString(false);//私钥
+            return prikey.ToString();
+</code></pre><p>使用的也是c#提供的类库<br>using System.Security.Cryptography;<br>using System.Security.Cryptography.X509Certificates;</p>
+<p>接下来是根据加密：</p>
+<pre><code>RSACryptoServiceProvider rsa = new RSACryptoServiceProvider();
+            byte[] cipherbytes = new byte[] { };
+            rsa.FromXmlString(privateKey);
+            byte[] data = Encoding.UTF8.GetBytes(src.ToString());
+            byte[] ss = new byte[1024];
+            int length = 0;
+            for (int i = 0; i &lt; data.Length; i += 117)
+            {
+                cipherbytes = rsa.Encrypt(data.Skip(i).Take(117).ToArray(), false);
+                length += cipherbytes.Length;
+                cipherbytes.CopyTo(ss, length);
+            }
+            byte[] result = ss.Skip(128).Take(length).ToArray();
+            return result;
+</code></pre><p>如果明文过长需要分组截取数据再进行加密(这是坑！！！)</p>
+<p>然而把加密后的数据提交给对方后，返回数据解析失败，Google一系列之后，才有点眉目，他们那边是java生成的密钥，用私钥加密公钥解密。而c#正好相反，提供的类库是用公钥加密私钥解密，这就是问题所在。<br>当然有问题就要解决啦，有这样一个类库，大名鼎鼎的BouncyCastle，只是以前没有接触过<br>，私钥加密公钥解密，以下是方法：</p>
+<pre><code>public class RSAForJava
+{
+    public RSAForJava()
+    {
+    }
+    /// &lt;summary&gt;
+    /// KEY 结构体
+    /// &lt;/summary&gt;
+    public struct RSAKEY
+    {
+        /// &lt;summary&gt;
+        /// 公钥
+        /// &lt;/summary&gt;
+        public string PublicKey
+        {
+            get;
+            set;
+        }
+        /// &lt;summary&gt;
+        /// 私钥
+        /// &lt;/summary&gt;
+        public string PrivateKey
+        {
+            get;
+            set;
+        }
+    }
+    public RSAKEY GetKey()
+    {
+        //RSA密钥对的构造器  
+        RsaKeyPairGenerator keyGenerator = new RsaKeyPairGenerator();
+        //RSA密钥构造器的参数  
+        RsaKeyGenerationParameters param = new RsaKeyGenerationParameters(
+            BigInteger.ValueOf(3),
+            new SecureRandom(),
+            1024,   //密钥长度  
+            25);
+        //用参数初始化密钥构造器  
+        keyGenerator.Init(param);
+        //产生密钥对  
+        AsymmetricCipherKeyPair keyPair = keyGenerator.GenerateKeyPair();
+        //获取公钥和密钥  
+        AsymmetricKeyParameter publicKey = keyPair.Public;
+        AsymmetricKeyParameter privateKey = keyPair.Private;
+        SubjectPublicKeyInfo subjectPublicKeyInfo = SubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(publicKey);
+        PrivateKeyInfo privateKeyInfo = PrivateKeyInfoFactory.CreatePrivateKeyInfo(privateKey);
+        Asn1Object asn1ObjectPublic = subjectPublicKeyInfo.ToAsn1Object();
+        byte[] publicInfoByte = asn1ObjectPublic.GetEncoded(&quot;UTF-8&quot;);
+        Asn1Object asn1ObjectPrivate = privateKeyInfo.ToAsn1Object();
+        byte[] privateInfoByte = asn1ObjectPrivate.GetEncoded(&quot;UTF-8&quot;);
+        RSAKEY item = new RSAKEY()
+        {
+            PublicKey = Convert.ToBase64String(publicInfoByte),
+            PrivateKey = Convert.ToBase64String(privateInfoByte)
+        };
+        return item;
+    }
+    private AsymmetricKeyParameter GetPublicKeyParameter(string s)
+    {
+        s = s.Replace(&quot;\r&quot;, &quot;&quot;).Replace(&quot;\n&quot;, &quot;&quot;).Replace(&quot; &quot;, &quot;&quot;);
+        byte[] publicInfoByte = Convert.FromBase64String(s);
+        Asn1Object pubKeyObj = Asn1Object.FromByteArray(publicInfoByte);//这里也可以从流中读取，从本地导入   
+        AsymmetricKeyParameter pubKey = PublicKeyFactory.CreateKey(publicInfoByte);
+        return pubKey;
+    }
+    private AsymmetricKeyParameter GetPrivateKeyParameter(string s)
+    {
+        s = s.Replace(&quot;\r&quot;, &quot;&quot;).Replace(&quot;\n&quot;, &quot;&quot;).Replace(&quot; &quot;, &quot;&quot;);
+        byte[] privateInfoByte = Convert.FromBase64String(s);
+        // Asn1Object priKeyObj = Asn1Object.FromByteArray(privateInfoByte);//这里也可以从流中读取，从本地导入   
+        // PrivateKeyInfo privateKeyInfo = PrivateKeyInfoFactory.CreatePrivateKeyInfo(privateKey);
+        AsymmetricKeyParameter priKey = PrivateKeyFactory.CreateKey(privateInfoByte);
+        return priKey;
+    }
+    public string EncryptByPrivateKey(string s, string key)
+    {
+        //非对称加密算法，加解密用  
+        IAsymmetricBlockCipher engine = new Pkcs1Encoding(new RsaEngine());
+        //加密  
+        try
+        {
+            engine.Init(true, GetPrivateKeyParameter(key));
+            byte[] byteData = System.Text.Encoding.UTF8.GetBytes(s);
+            var ResultData = engine.ProcessBlock(byteData, 0, byteData.Length);
+            return Convert.ToBase64String(ResultData);
+            //Console.WriteLine(&quot;密文（base64编码）:&quot; + Convert.ToBase64String(testData) + Environment.NewLine);
+        }
+        catch (Exception ex)
+        {
+            return ex.Message;
+        }
+    }
+    public string DecryptByPublicKey(string s, string key)
+    {
+        s = s.Replace(&quot;\r&quot;, &quot;&quot;).Replace(&quot;\n&quot;, &quot;&quot;).Replace(&quot; &quot;, &quot;&quot;);
+        //非对称加密算法，加解密用  
+        IAsymmetricBlockCipher engine = new Pkcs1Encoding(new RsaEngine());
+        //解密  
+        try
+        {
+            engine.Init(false, GetPublicKeyParameter(key));
+            byte[] byteData = Convert.FromBase64String(s);
+            var ResultData = engine.ProcessBlock(byteData, 0, byteData.Length);
+            return Encoding.UTF8.GetString(ResultData);
+        }
+        catch (Exception ex)
+        {
+            return ex.Message;
+        }
+    }
+}
+</code></pre><p>所以更改之后加密方法是这样的：</p>
+<pre><code>//加载私钥  
+        RSACryptoServiceProvider privateRsa = new RSACryptoServiceProvider();
+        privateRsa.FromXmlString(xmlPrivateKey);
+        //转换密钥  
+        AsymmetricCipherKeyPair keyPair = DotNetUtilities.GetKeyPair(privateRsa);
+        IBufferedCipher c = CipherUtilities.GetCipher(&quot;RSA/ECB/PKCS1Padding&quot;);
+        c.Init(true, keyPair.Private);
+        byte[] DataToEncrypt = Encoding.UTF8.GetBytes(strEncryptString);
+        byte[] cipherbytes = new byte[] { };
+        byte[] ss = new byte[1024];
+        int length = 0;
+        for (int i = 0; i &lt; DataToEncrypt.Length; i += 117)
+        {
+            cipherbytes = c.DoFinal(DataToEncrypt.Skip(i).Take(117).ToArray());
+            length += cipherbytes.Length;
+            cipherbytes.CopyTo(ss, length);
+        }
+        byte[] result = ss.Skip(128).Take(length).ToArray();
+        string str = byte2Hex(result);
+        return str;
+</code></pre><p>其中加密之后是字节数组result，需要把它转化成16进制字符串：</p>
+<pre><code>private static string byte2Hex(byte[] bytes)
+   {
+       string returnStr = &quot;&quot;;
+       if (bytes != null)
+       {
+           for (int i = 0; i &lt; bytes.Length; i++)
+           {
+               returnStr += bytes[i].ToString(&quot;X2&quot;);
+           }
+       }
+       return returnStr;
+   }
+</code></pre><h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>其实就是rsa加密算法java和c#交互问题，c#客户端和java服务器端。</p>
+<ol>
+<li>将数据进行base64编码</li>
+<li>c#端根据java端传来的密钥及其密码提取私钥信息</li>
+<li>c#端使用私钥进行加密，这里不能用自带的rsa类库加密算法，因为它只能用公钥加密私钥解密，需要使用第三方库BouncyCastle</li>
+<li>将加密结果转化为16进制字符串，post提交，ok</li>
+</ol>
+<p>文章写得不好，看到的还请谅解，一起学习进步。</p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[使用ajax的步骤]]></title>
+      <url>http://yoursite.com/2017/03/24/%E4%BD%BF%E7%94%A8ajax%E7%9A%84%E6%AD%A5%E9%AA%A4/</url>
+      <content type="html"><![CDATA[<p>作为一个开发者,ajax一直都在用,包括jQuery,Extjs,vuejs,react native都封装好了ajax,用于数据交互,但如果抛弃了这些框架,我们该如何使用ajax呢?<br><a id="more"></a></p>
+<h2 id="介绍"><a href="#介绍" class="headerlink" title="介绍"></a>介绍</h2><p><code>AJAX = 异步 JavaScript 和 XML,
+AJAX 是一种用于创建快速动态网页的技术,
+通过在后台与服务器进行少量数据交换，AJAX 可以使网页实现异步更新,这意味着可以在不重新加载整个网页的情况下，对网页的某部分进行更新,
+传统的网页（不使用 AJAX）如果需要更新内容，必需重载整个网页面.</code></p>
+<h2 id="创建-XMLHttpRequest-对象"><a href="#创建-XMLHttpRequest-对象" class="headerlink" title="创建 XMLHttpRequest 对象"></a>创建 XMLHttpRequest 对象</h2><pre><code>var xmlhttp;
+if (window.XMLHttpRequest)
+{// code for IE7+, Firefox, Chrome, Opera, Safari
+    xmlhttp=new XMLHttpRequest();
+}
+else
+{// code for IE6, IE5
+    xmlhttp=new ActiveXObject(&quot;Microsoft.XMLHTTP&quot;);
+}
+</code></pre><h2 id="XMLHttpRequest-请求"><a href="#XMLHttpRequest-请求" class="headerlink" title="XMLHttpRequest 请求"></a>XMLHttpRequest 请求</h2><p>如需将请求发送到服务器，我们使用 XMLHttpRequest 对象的 open() 和 send() 方法：</p>
+<pre><code>xmlhttp.open(&quot;GET&quot;,&quot;demo_get.asp&quot;,true);
+xmlhttp.send();
+</code></pre><table>
+<thead>
+<tr>
+<th>方法</th>
+<th style="text-align:center">描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>open(method,url,async)</td>
+<td style="text-align:center">规定请求的类型、URL 以及是否异步处理请求。method：请求的类型；GET 或 POST</td>
+</tr>
+</tbody>
+</table>
+<pre><code>url：文件在服务器上的位置
+async：true（异步）或 false（同步）|
+</code></pre><p>| send(string)    | 将请求发送到服务器。string：仅用于 POST 请求 |   </p>
+<h2 id="XMLHttpRequest-响应"><a href="#XMLHttpRequest-响应" class="headerlink" title="XMLHttpRequest 响应"></a>XMLHttpRequest 响应</h2><p>如需获得来自服务器的响应，请使用 XMLHttpRequest 对象的 responseText 或 responseXML 属性。</p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th style="text-align:center">描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>responseText</td>
+<td style="text-align:center">获得字符串形式的响应数据。</td>
+</tr>
+<tr>
+<td>responseXML</td>
+<td style="text-align:center">获得 XML 形式的响应数据。</td>
+</tr>
+</tbody>
+</table>
+<p>##　XMLHttpRequest 事件</p>
+<p>当请求被发送到服务器时，我们需要执行一些基于响应的任务。<br>每当 readyState 改变时，就会触发 onreadystatechange 事件。<br>readyState 属性存有 XMLHttpRequest 的状态信息。</p>
+<p>下面是 XMLHttpRequest 对象的三个重要的属性：</p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th style="text-align:center">描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>onreadystatechange</td>
+<td style="text-align:center">存储函数（或函数名），每当 readyState 属性改变时，就会调用该函数。</td>
+</tr>
+</tbody>
+</table>
+<p>|　readyState | 存有 XMLHttpRequest 的状态。从 0 到 4 发生变化。<br>   0: 请求未初始化<br>   1: 服务器连接已建立<br>   2: 请求已接收<br>   3: 请求处理中<br>   4: 请求已完成，且响应已就绪|</p>
+<p>|status  |200: “OK”　　404: 未找到页面|</p>
+<p>注释：onreadystatechange 事件被触发 5 次（0 - 4），对应着 readyState 的每个变化。</p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[前端面试题总结]]></title>
+      <url>http://yoursite.com/2017/03/14/%E5%89%8D%E7%AB%AF%E9%9D%A2%E8%AF%95%E9%A2%98%E6%80%BB%E7%BB%93/</url>
+      <content type="html"><![CDATA[<p>前端水很深,但我也要试着趟一趟,珍藏了一些易混淆的面试题,避免再次入坑.<br><a id="more"></a></p>
+<h2 id="js"><a href="#js" class="headerlink" title="js"></a>js</h2><ol>
+<li><p>var和let的使用</p>
+<p> `var a = 200;<br> function test1 () {</p>
+<pre><code>console.log(a); //undefined
+var b = a*2;
+var a = 100;
+var c = a/2;
+console.log(a+&quot;,&quot;+b+&quot;,&quot;+c); //100,NaN,50
+</code></pre><p> }<br> test1();`</p>
+<p> `var a = 200;<br> function test2 () {</p>
+<pre><code>console.log(a); //200
+var b = a*2;
+a = 100;
+var c = a/2;
+console.log(a+&quot;,&quot;+b+&quot;,&quot;+c); //100,400,50
+</code></pre><p> }<br> test2();`</p>
+<p> `var a = 200;<br> function test3 () {</p>
+<pre><code>console.log(a); //报错, a is not defined
+var b = a*2;
+let a = 100;
+var c = a/2;
+console.log(a+&quot;,&quot;+b+&quot;,&quot;+c); 
+</code></pre><p> }<br> test3();`<br>快级作用域和变量提升问题.</p>
+</li>
+<li><p>下面一段代码输出什么</p>
+<p> `var b = 10;<br> function t () {</p>
+<pre><code>console.log(b);
+</code></pre><p> }<br> (function(fun) {</p>
+<pre><code>var b = 20;
+fun();  //10
+</code></pre><p> })(t);`</p>
+<p> `var b = 10;<br> function t () {</p>
+<pre><code>console.log(b);
+</code></pre><p> }<br> (function(fun) {</p>
+<pre><code>b = 20;
+fun();  //20
+</code></pre><p> })(t);`    </p>
+</li>
+<li><p>排序算法<br>快排:</p>
+<pre><code>`function quickSort (arr) {
+
+if (arr.length===0) {
+    return [];
+}
+
+let cIndex = Math.floor(arr.length / 2),
+    c = arr.splice(cIndex, 1)[0],
+    l = [],
+    r = [];
+
+for (var i = arr.length - 1; i &gt;= 0; i--) {
+    if (arr[i] &lt; c) {
+        l.push(arr[i]);
+    }else{
+        r.push(arr[i]);
+    }       
+}
+return quickSort(l).concat(c,quickSort(r));
+</code></pre><p> }<code>冒泡:</code>function bubbleSort (arr) {</p>
+<pre><code>for (var i = 0; i&lt; arr.length; i++) {
+    for (var j = 0; j &lt; arr.length - 1 - i; j++) {
+        if (arr[j] &gt; arr[j+1]) {
+            var temp = arr[j+1];        //元素交换
+            arr[j+1] = arr[j];
+            arr[j] = temp;
+        }
+    }
+}
+return arr;
+</code></pre><p> }`<br>//选择<br>function selectSort (arr) {<br> var temp,minIndex;<br> for(var i=0;i&lt;arr.length; i++){</p>
+<pre><code>minIndex = i;
+for(var j = i;j&lt;arr.length; j++){
+    if (arr[j]&lt;arr[minIndex]) {
+        minIndex = j;
+    }
+}
+[arr[i],arr[minIndex]] = [arr[minIndex],arr[i]];
+// temp = arr[i];
+// arr[i] = arr[minIndex];
+// arr[minIndex] = temp;
+</code></pre><p> }<br> return arr;<br>}</p>
+</li>
+</ol>
+<p>数组生成随机数:<br>Array.prototype.range = function ( start,end ){<br>    var _self = this;<br>    var length = end - start +1;<br>    var step = start - 1;<br>    return Array.apply(null,{length:length}).map(function (v,i){step++;return step;});<br>};</p>
+<ol>
+<li>ES6中class的使用<br> class Person{<br> get props(){<pre><code>return &quot;props&quot;;
+</code></pre> }<br> set props(props){<pre><code>console.log(&apos;setter: &apos;+props);
+</code></pre> }<br> constructor(name,age){<pre><code>this.name = name;
+this.age = age;
+</code></pre> }<br> say(){<pre><code>return this.name+&quot;,&quot;+this.age;
+</code></pre> }<br> grade(){}<br>}<br>class Student extends Person{<br> constructor(name,age,grade){<pre><code>super(name,age);
+this.grade = grade;
+</code></pre> }<br> say(){<pre><code>return this.name+&quot;,&quot;+this.age+&quot;,&quot;+this.grade;
+</code></pre> }<br> grade1(){<pre><code>return this.grade;
+</code></pre> }<br>}<br>let p = new Person(‘chao’,23);<br>var s = new Student(‘c’,22,98);<br>console.log(p.props);<br>p.props =”haha”;<br>console.log(p.props);<br>console.log(p.say());<br>console.log(s.grade1());</li>
+</ol>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[javascript之Array对象]]></title>
+      <url>http://yoursite.com/2017/03/08/javascript%E4%B9%8BArray%E5%AF%B9%E8%B1%A1/</url>
+      <content type="html"><![CDATA[<p>Array 对象用于在单个的变量中存储多个值,这个值可以是boolean,string,number,甚至都可以为为object,总之任何值都可以.<br><a id="more"></a></p>
+<h2 id="构造"><a href="#构造" class="headerlink" title="构造"></a>构造</h2><pre><code>var arr1 = new Array();
+var arr2 = new Array(size);
+var arr3 = new Array(element0, element1, ..., elementn);
+</code></pre><p>通常用的最多的还是<code>var arr4 = []</code></p>
+<h2 id="参数"><a href="#参数" class="headerlink" title="参数"></a>参数</h2><blockquote>
+<p>参数 size 是期望的数组元素个数。返回的数组，length 字段将被设为 size 的值.<br>参数 element …, elementn 是参数列表.当使用这些参数来调用构造函数 Array() 时，新创建的数组的元素就会被初始化为这些值.它的 length 字段也会被设置为参数的个数.</p>
+</blockquote>
+<h2 id="返回值"><a href="#返回值" class="headerlink" title="返回值"></a>返回值</h2><blockquote>
+<p>返回新创建并被初始化了的数组。<br>如果调用构造函数 Array() 时没有使用参数，那么返回的数组为空，length 字段为 0。<br>当调用构造函数时只传递给它一个数字参数，该构造函数将返回具有指定个数、元素为 undefined 的数组.<br>当其他参数调用 Array() 时，该构造函数将用参数指定的值初始化数组。<br>当把构造函数作为函数调用，不使用 new 运算符时，它的行为与使用 new 运算符调用它时的行为完全一样.</p>
+</blockquote>
+<h2 id="属性"><a href="#属性" class="headerlink" title="属性"></a>属性</h2><table>
+<thead>
+<tr>
+<th>属性</th>
+<th style="text-align:center">描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>constructor</td>
+<td style="text-align:center">返回对创建此对象的数组函数的引用</td>
+</tr>
+<tr>
+<td>length</td>
+<td style="text-align:center">设置或返回数组中元素的数目</td>
+</tr>
+<tr>
+<td>prototype</td>
+<td style="text-align:center">使您有能力向对象添加属性和方法</td>
+</tr>
+</tbody>
+</table>
+<h2 id="方法"><a href="#方法" class="headerlink" title="方法"></a>方法</h2><p>先上张图片<a href="../../../../imgs/fangfa.png">示例图</a><br>使用了比较容易理解的方法:</p>
+<ol>
+<li>push: 向数组的末尾添加一个或更多元素，并返回新的长度.</li>
+<li>unshift: 向数组的开头添加一个或更多元素，并返回新的长度.</li>
+<li>sort: 对数组的元素进行排序.</li>
+<li>valueOf: 返回数组对象的原始值.</li>
+<li>toString: 返回字符串.</li>
+<li>shift: 删除并返回数组的第一个元素.</li>
+<li>pop: 删除并返回最后一个元素.</li>
+<li>concat: 连接两个或更多的数组，并返回新的数组.</li>
+<li>join: 把数组的所有元素放入一个字符串。元素通过指定的分隔符进行分隔.</li>
+</ol>
+<p><code>3.14更新</code></p>
+<ol>
+<li>slice: 从已有的数组中返回选定的元素 ,不会改变原来数组.</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th style="text-align:center">描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>start</td>
+<td style="text-align:center">必需。规定从何处开始选取。如果是负数，那么它规定从数组尾部开始算起的位置。也就是说，-1 指最后一个元素，-2 指倒数第二个元素，以此类推。</td>
+</tr>
+<tr>
+<td>end</td>
+<td style="text-align:center">可选。规定从何处结束选取。该参数是数组片断结束处的数组下标。如果没有指定该参数，那么切分的数组包含从 start 到数组结束的所有元素。如果这个参数是负数，那么它规定的是从数组尾部开始算起的元素。</td>
+</tr>
+</tbody>
+</table>
+<ol>
+<li>splice: 向/从数组中添加/删除项目，然后返回被删除的项目,意味着原来数组会被更改,这点与slice不同.</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th style="text-align:center">描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>index</td>
+<td style="text-align:center">必需。整数，规定添加/删除项目的位置，使用负数可从数组结尾处规定位置。</td>
+</tr>
+<tr>
+<td>howmany</td>
+<td style="text-align:center">必需。要删除的项目数量。如果设置为 0，则不会删除项目。</td>
+</tr>
+<tr>
+<td>item1, …, itemX</td>
+<td style="text-align:center">可选。向数组添加的新项目。</td>
+</tr>
+</tbody>
+</table>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[总结的postGIS函数]]></title>
+      <url>http://yoursite.com/2017/03/07/%E6%80%BB%E7%BB%93%E7%9A%84postGIS%E5%87%BD%E6%95%B0/</url>
+      <content type="html"><![CDATA[<p>还记得初到公司的时候,就让我看postGIS函数,大概有2000多个,记下来谈何容易,<a href="http://www.postgis.org/" target="_blank" rel="external">这是官网</a>,看了有大概两天,记录一下经常用到的,描述可能不够贴切,还需自己亲自实践一下.<br><a id="more"></a></p>
+<h2 id="Management-Functions"><a href="#Management-Functions" class="headerlink" title="Management Functions"></a>Management Functions</h2><ol>
+<li>AddGeometryColumn(<schema_name>, <table_name>, <column_name>, <srid>, <type>, <dimension>)<br>给一个已存在属性数据表增加一个几何字段(geomtry column)。schema_name 指表的模式的名字，table_name 表名，srid 必须是一个整数指对应于 SPATIAL_REF_SYS 表，type必须是一个大写的字符串，用来描述几何类型，例如：’POLYGON’ 或者 ‘MULTILINESTRING’，dimension空间维度。Return text</dimension></type></srid></column_name></table_name></schema_name></li>
+<li>DropGeometryColumn()移除表中的几何列。Return text</li>
+<li>DropGeometryTable()移除表和它关联的几何列。Return Boolean</li>
+<li>PostGIS_Full_Version()返回完整版的postgis及相关构建配置信息。return text</li>
+<li>PostGIS_GEOS_Version()返回GEOS的版本号。Return text</li>
+<li>PostGIS_LibXML_Version()返回LibXML的版本号。Return text</li>
+<li>PostGIS_Lib_Build_Date()，返回建库的日期。Return text</li>
+<li>PostGIS_Lib_Version()，返回库的版本号。Return text</li>
+<li>PostGIS_PROJ_Version()，返回PROJ4的版本号。Return text</li>
+<li>PostGIS_Scripts_Build_Date()，返回建立postgis的脚本日期，return text</li>
+<li>PostGIS_Scripts_Installed()，脚本升级的日期。Return text</li>
+<li>UpdateGeometrySRID()，更新SRID。Return text </li>
+</ol>
+<h2 id="Geometry-Constructors"><a href="#Geometry-Constructors" class="headerlink" title="Geometry Constructors"></a>Geometry Constructors</h2><ol>
+<li>ST_BdPolyFromText()构建一个多边形给定的任意集合的关闭线作为MultiLineString WKT表示。</li>
+<li>ST_BdMPolyFromText ()构建多个多边形任意的集合MultiLineString文本WKT表示。</li>
+<li>ST_GeogFromText ()从WKT表示返回一个指定的地理值。</li>
+<li>ST_GeographyFromText()从WKT表示返回一个指定的地理值。</li>
+<li>ST_GeogFromWKB()创建一个地理实例从WKB或EWKB。</li>
+<li>ST_GeomCollFromText()让一组几何与给定集合WKT SRID。 如果SRID 不给,它默认为-1。</li>
+<li>ST_GeomFromEWKB ()返回一个指定ST_Geometry值扩展EWKB。</li>
+<li>ST_GeomFromEWKT ()返回一个指定ST_Geometry值扩展EWKT。</li>
+<li>ST_GeometryFromText()返回一个指定从著名的文本表示ST_Geometry值。 这是一个为ST_GeomFromText别名</li>
+<li>ST_GeomFromGML()需要作为输入的GML表示几何和输出PostGIS几何对象</li>
+<li>ST_GeomFromKML()需要作为输入的KML表示几何和输出PostGIS几何对象</li>
+<li>ST_GMLToSQL()返回一个指定从GML ST_Geometry值表示。 这是一个为ST_GeomFromGML别名</li>
+<li>ST_GeomFromText()返回一个指定从著名的文本表示ST_Geometry值。</li>
+<li>ST_GeomFromWKB ()创建一个几何实例从WKB和可选的SRID。</li>
+<li>ST_LineFromMultiPoint 一个LineString()创建从一个多点几何学。</li>
+<li>ST_LineFromText ()使几何与给定的WKT表示SRID。 如果SRID 不,它默认为-1。</li>
+<li>ST_LineFromWKB()了 LINESTRING 从WKB SRID</li>
+<li>ST_LinestringFromWKB()几何与给定的WKB SRID。</li>
+<li>ST_MakeBox2D()创建一个BOX2D定义为给定的点 几何图形。</li>
+<li>ST_MakeBox3D() 创建一个BOX3D定义为给定的3 d点几何图形。</li>
+<li>ST_MakeLine()创建从几何图形。</li>
+<li>ST_MakeEnvelope ()创建一个矩形多边形由给定的极限和最大值。 输入指定的值必须在SRID中。</li>
+<li>ST_MakePolygon ()创建一个多边形由给定的壳。 输入几何图形必须关闭线。</li>
+<li>ST_MakePoint ()创建一个2 d,3 dz或4 d点几何。</li>
+<li>ST_MakePointM ()创建一个点几何x y和m坐标。</li>
+<li>ST_MLineFromText ()返回一个指定从WKT ST_MultiLineString值表示。</li>
+<li>ST_MPointFromText ()几何与给定的WKT SRID。 如果SRID 不给,它默认为-1。</li>
+<li>ST_MPolyFromText()使多个多边形几何与给定的WKT SRID。 如果SRID 不给,它默认为-1。</li>
+<li>ST_Point()返回一个ST_Point与给定的坐标值。 OGC ST_MakePoint别名。</li>
+<li>ST_PointFromText ()使几何与给定的WKT SRID。 如果SRID 不给出,它默认为-1。</li>
+<li>ST_PointFromWKB()几何与给定的WKB SRID</li>
+<li>ST_Polygon()返回一个多边形由指定linestring和SRID。</li>
+<li>ST_PolygonFromText()几何与给定的WKT SRID。 如果SRID 不给,它默认为-1。</li>
+<li>ST_WKBToSQL ()返回一个指定从WKB表示ST_Geometry值。 这是一个别名,ST_GeomFromWKB srid</li>
+<li>ST_WKTToSQL()返回一个指定从WKT表示ST_Geometry值。 这是一个为ST_GeomFromText别名</li>
+</ol>
+<h2 id="Geometry-Accessors"><a href="#Geometry-Accessors" class="headerlink" title="Geometry Accessors"></a>Geometry Accessors</h2><ol>
+<li>GeometryType(geometry geomA)，return text<br>2．ST_Boundary(geometry geomA)，几何类型的边界，return geometry</li>
+<li>ST_CoordDim(geometry geomA)，返回几何的维度，2、3、4维return integer</li>
+<li>ST_Dimension(geometry g)几何图形的最大维度，例如，点返回1，线返回2，不知名的则返回null</li>
+<li>ST_EndPoint(geometry g)，线的最后一个点，return Boolean</li>
+<li>ST_Envelope(geometry g1)，几何图形的边框，geometry</li>
+<li>ST_ExteriorRing(geometry a_polygon)，必须是polygon，否则返回null</li>
+<li>ST_GeometryN(geometry geomA, integer n)，从1开始的第n个图形，不是geometry则返回null</li>
+<li>ST_GeometryType(geometry g1)，g1类型的值，return text</li>
+<li>ST_InteriorRingN(geometry a_polygon, integer n)，第n的位置插入a_polygon,如果不是polygon或超出界限，则返回null</li>
+<li>ST_IsClosed(geometry g)，g是闭合的返回true，例如：线-起点终点重合，多面体表面闭合</li>
+<li>ST_IsCollection(geometry g)如果g是GEOMETRYCOLLECTION<br>MULTI{POINT,POLYGON,LINESTRING,CURVE,SURFACE} COMPOUNDCURVE任意其中一个，返回true，否则false</li>
+<li>ST_IsEmpty(geometry geomA)，判断geometryA是否使一个几何体的集合</li>
+<li>ST_IsRing(geometry g)判断g是否是闭合的简单的linestring</li>
+<li>ST_IsSimple(geometry g)判断g是否有异常点，相交或相切</li>
+<li>ST_IsValid(geometry g)，判断g是否很好的形成</li>
+<li>ST_IsValidReason(geometry g)返回g很好形成的原因声明或没有很好形成的原因声明</li>
+<li>ST_IsValidDetail(geometry g)返回g很好形成与否的细节，如果无效，指出原因的出错地点</li>
+<li>ST_M(geometry a_point)返回点的坐标，输入必须为点，float</li>
+<li>ST_NDims(geometry g)几何图形g的维度，2、3或4</li>
+<li>ST_NPoints(geometry g)返回g中点的个数</li>
+<li>ST_NRings(geometry g) polygon or multi-polygon中圈的个数</li>
+<li>ST_NumGeometries(geometry g)如果g是GEOMETRYCOLLECTION (or MULTI*)则返回图形的个数，单一则返回1，没有则返回0</li>
+<li>ST_NumInteriorRings(geometry a_polygon)必须是POLYGON或 MULTIPOLYGON，返回第一个多边形的环数，否则返回null</li>
+<li>ST_NumInteriorRing(geometry a_polygon)和上边的同义</li>
+<li>ST_NumPatches(geometry g1)多面体表面的面数，没有则返回null</li>
+<li>ST_NumPoints(geometry g)g中点数，同ST_NPoints(geometry g)</li>
+<li>ST_PatchN(geometry geom, integer n)，从1开始的第n个面，没有面就返回null</li>
+<li>ST_PointN(geometry a_linestring, integer n)，几何图形a_linestring中第n个图形，没有线串或圆弧就返回null</li>
+<li>ST_SRID(geometry g)，srid</li>
+<li>ST_StartPoint(geometry geom)线穿图形的第一个点</li>
+<li>ST_Summary(geometry g)，g的摘要，比如有几个点，几个环等</li>
+<li>ST_X(geometry a_point)必须是一个点，点的X坐标</li>
+<li>ST_Y(geometry a_point) 必须是一个点，点的Y坐标</li>
+<li>ST_Z(geometry a_point) 必须是一个点，点的Z坐标</li>
+<li>ST_XMax(box3d aGeomorBox2DorBox3D)最大的X坐标</li>
+<li>ST_YMax(box3d aGeomorBox2DorBox3D)最大的Y坐标</li>
+<li>ST_ZMax(box3d aGeomorBox2DorBox3D)最大的Z坐标</li>
+<li>同样还有最小的坐标</li>
+<li>ST_Zmflag(geometry geomA) 0=2d, 1=3dm, 2=3dz, 3=4d，smallint</li>
+</ol>
+<p>##　Geometry Editors</p>
+<ol>
+<li>ST_AddPoint(geometry linestring, geometry point, <integer position="">)在线串中添加一个点，第三个参数可以省略或设置为-1</integer></li>
+<li>ST_Affine(geometry geomA, float a, float b, float c, float d, float e, float f, float g, float h, float i, float xoff, float yoff,<br>float zoff)对几何图形进行3D变换，翻转、旋转、缩放等</li>
+<li>ST_Force_2D(geometry geomA)强制转换成2维模式，输出只有XY坐标</li>
+<li>ST_Force_3D(geometry geomA)3D模式</li>
+<li>ST_Force_4D(geometry geomA)XYZM模式</li>
+<li>ST_Force_3DM(geometry geomA)XYM模式同ST_Force_3D(geometry geomA)</li>
+<li>ST_Force_3DZ(geometry geomA)XYZ模式</li>
+<li>ST_Force_Collection(geometry geomA)强制转换成GEOMETRYCOLLECTION</li>
+<li>ST_ForceRHR(geometry g)强制顶点的方向在多边形中遵循右手定则</li>
+<li>ST_LineMerge(geometry amultilinestring)线串的合并，如果不能被合并，返回原始数据</li>
+<li>ST_CollectionExtract(geometry collection, integer type)返回包含特定类型type的元素</li>
+<li>ST_CollectionHomogenize(geometry collection)返回collection中最简化形式，比如，一个点则返回一个点，两个点则返回一条线</li>
+<li>ST_Multi(geometry g)，如果g不是multi(<em>)类型，则返回multi（</em>）类型，如果是，则不发生改变</li>
+<li>ST_RemovePoint(geometry linestring, integer offset)移除linestring中的点，offset为偏移量从0开始</li>
+<li>ST_Reverse(geometry g)将g 中顶点顺序颠倒</li>
+<li>ST_Rotate(geometry geomA, float rotRadians)关于原点逆时针旋转rotradians角度<br>ST_Rotate(geometry geomA, float rotRadians, float x0, float y0) 关于（x0,y0）逆时针旋转rotradians角度<br>ST_Rotate(geometry geomA, float rotRadians, geometry pointOrigin)基于pointOrigin图形旋转</li>
+<li>ST_RotateX(geometry geomA, float rotRadians)绕X轴旋转</li>
+<li>ST_RotateY(geometry geomA, float rotRadians) 绕Y轴旋转</li>
+<li>ST_RotateZ(geometry geomA, float rotRadians) 绕Z轴旋转</li>
+<li>ST_Scale(geometry geomA, float XFactor, float YFactor, float ZFactor)缩放XYZ</li>
+<li>ST_Segmentize(geometry g, float max_length)返回g中不大于max_length长度的形状，只适合2D<br>22.　ST_SetPoint(geometry linestring, integer zerobasedposition, geometry point)替换linestring中的点，位置从0开始</li>
+<li>ST_SetSRID(geometry geom, integer srid)设置srid值</li>
+<li>ST_SnapToGrid(geometry geomA, float originX, float originY, float sizeX, float sizeY)捕捉输入的XYZ点到网格<br>ST_SnapToGrid(geometry geomA, float sizeX, float sizeY)<br>ST_SnapToGrid(geometry geomA, float size);<br>ST_SnapToGrid(geometry geomA, geometry pointOrigin, float sizeX, float sizeY, float sizeZ, float sizeM)</li>
+<li>ST_Snap(geometry input, geometry reference, float tolerance)</li>
+<li>ST_Transform(geometry g, integer srid)返回一个新的几何图形，g的坐标引用srid中的参数</li>
+<li>ST_Translate(geometry g1, float deltax, float deltay)将g1平移deltax,deltay位置<br>geometry ST_Translate(geometry g1, float deltax, float deltay, float deltaz)将g1平移XYZ轴deltax,deltay,deltaz位置</li>
+<li>ST_TransScale(geometry geomA, float deltaX, float deltaY, float XFactor, float YFactor)只在2D中使用，XY轴平移参数deltaX、deltaY，XY轴缩放参数Xfactor，Yfactor</li>
+</ol>
+<p>##　Geometry Outputs</p>
+<ol>
+<li>ST_AsBinary(geometry g1，<text ndr_or_xdr="">)返回g1的WKB形式,不带srid参数，第二个参数可选，编码格式NDR或XDR</text></li>
+<li>ST_AsEWKB(geometry g1)用法同上，只是加上srid参数</li>
+<li>ST_AsEWKT(geometry g1)返回带有srid参数的WKT形式</li>
+<li>ST_AsGeoJSON(geometry geom, integer maxdecimaldigits=15, integer options=0)，以json形式返回几何体类型，2D、3D都支持<br>5.　ST_AsGML(<integer version="">，geometry geom, integer maxdecimaldigits=15, integer options=0)以GML形式返回几何体类型，GML版本2或3，默认的是2</integer></li>
+<li>ST_AsHEXEWKB(geometry g1, text NDRorXDR)返回g1的HEXEWKB格式，编码方式可选NDR或XDR</li>
+<li>ST_AsKML(integer version, geometry geom, integer maxdecimaldigits=15, text nprefix=NULL) 以KML形式返回几何体类型</li>
+<li>ST_AsSVG(geometry geom, integer rel=0, integer maxdecimaldigits=15)<br>ST_AsSVG(geography geog, integer rel=0, integer maxdecimaldigits=15)返回geom或geog的svg路径数据，第二个参数默认为0（relative move），也可设置为1（absolute move）</li>
+<li>ST_AsX3D(geometry g1, integer maxdecimaldigits=15, integer options=0)以ISO-IEC-19776-1.2-X3DEncodings-XML格式返回g1</li>
+<li>ST_GeoHash(geometry geom, integer maxchars=full_precision_of_point)返回geom的GeoHash形式，第二个参数最大字符个数</li>
+<li>ST_AsText(geometry g1)<br>ST_AsText(geography g1)返回g1不带srid的WKT表示</li>
+<li>ST_AsLatLonText(geometry pt, text format)返回给定点的degrees,minutes,seconds, cardinal direction,第二个参数为格式</li>
+</ol>
+<p>##　Operators</p>
+<ol>
+<li>&amp;&amp;( geometry A , geometry B )A的2D边框相交B的2D边框则返回true</li>
+<li>&amp;&amp;&amp;( geometry A , geometry B )A的3D边框相交B的3D边框则返回true</li>
+<li>&amp;&lt;( geometry A , geometry B )A的边框重叠B或在B的左边返回true</li>
+<li>&amp;&lt;|( geometry A , geometry B ) A的边框重叠B或在B的下边返回true</li>
+<li>&amp;&gt;( geometry A , geometry B ) A的边框重叠B或在B的右边返回true</li>
+<li>&lt;&lt;( geometry A , geometry B ) A的边框严格地在B的左边返回true</li>
+<li>&lt;&lt;|( geometry A , geometry B ) A的边框严格地在B的下边返回true</li>
+<li>=( geometry A , geometry B )如果A的几何边框和B一样，则返回true，双精度边框使用</li>
+<li><blockquote>
+<blockquote>
+<p>( geometry A , geometry B ) A的边框严格地在B的右边返回true</p>
+</blockquote>
+</blockquote>
+</li>
+<li>@( geometry A , geometry B )A的边框完全被包含在B中返回true</li>
+<li>|&amp;&gt;( geometry A , geometry B ) A的边框重叠B或在B的上边返回true</li>
+<li>|&gt;&gt;( geometry A , geometry B ) A的边框严格地在B的上边返回true</li>
+<li>~( geometry A , geometry B )A的边框包含了B则返回true</li>
+<li>~=( geometry A , geometry B )A的边框是否和B的边框一样</li>
+<li>&lt;-&gt;( geometry A , geometry B )返回两点之间的距离，浮点精度</li>
+<li>&lt;#&gt;( geometry A , geometry B )边框间的距离，应用于距离排序</li>
+</ol>
+<p>##　Spatial Relationships and Measurements</p>
+<ol>
+<li>ST_3DClosestPoint(geometry g1, geometry g2)返回g1和g2中最近的一个点，可以是线和点之间，线和多点，多线和多边形之间，3D2D都适用</li>
+<li>ST_3DDistance(geometry g1, geometry g2)返回g1和g2之间三维最小笛卡尔距离</li>
+<li>ST_3DDWithin(geometry g1, geometry g2, double precision distance_of_srid)适用于3d(z)模型，判断g1和g2是否在所给距离范围之内</li>
+<li>ST_3DDFullyWithin(geometry g1, geometry g2, double precision distance)判断g1和g2是否完全在给定的距离范围之内</li>
+<li>ST_3DIntersects( geometry geomA , geometry geomB )判断是否在空间上相交，仅适用于空间的points和linestrings</li>
+<li>ST_3DLongestLine(geometry g1, geometry g2)空间上返回g1和g2之间最长的line，return geometry</li>
+<li>ST_3DMaxDistance(geometry g1, geometry g2)返回空间上g1和g2之间最大的距离，return float</li>
+<li>ST_3DShortestLine(geometry g1, geometry g2)g1和g2之间最短的line，return geometry</li>
+<li>ST_Area(geography geog, boolean use_spheroid=true)多边形或多个多边形的表面积，第二个参数可选，默认是true</li>
+<li>ST_Azimuth(geometry A, geometry B)垂直方向上从A到B的基于北方向的顺时针方位角度，return float</li>
+<li>ST_Centroid(geometry g1)返回g1的几何中心，return geometry<br>12.　ST_ClosestPoint(geometry g1, geometry g2)二维中g1中距离g2最近的点，line中的第一个点<br>13.　ST_Contains(geometry A, geometry B) 返回true当且仅当没有B位于一个的A外部，和B的内部的至少一个点的点在于A的内部</li>
+<li>ST_ContainsProperly(geometry geomA, geometry geomB)如果AB相交于A的内部而不是边界或外部，则返回true</li>
+<li>ST_Covers(geometry geomA, geometry geomB)如果B中的点没有在A的外部则返回true</li>
+<li>ST_CoveredBy(geometry geomA, geometry geomB)如果A中的点没有一个在B的外部则返回true</li>
+<li>ST_Crosses(geometry g1, geometry g2)如果g1中的点或线在g2中则返回true<br>18.ST_LineCrossingDirection(geometry linestringA, geometry linestringB)给定两个linestring ，返回二者的交叉行为，-3，-2，-1,0,1，2,3</li>
+<li>ST_Disjoint( geometry A , geometry B )如果AB空间没有相交，或没有共用同一个空间则返回true</li>
+<li>ST_Distance(geometry g1, geometry g2)返回g1和g2几何体在投影上的笛卡尔最小距离。Return float</li>
+<li>ST_MaxDistance(geometry g1, geometry g2)返回最大距离</li>
+<li>ST_Distance_Sphere(geometry geomlonlatA, geometry geomlonlatB)返回两个经纬度几何体之间的距离</li>
+<li>ST_Distance_Spheroid(geometry geomlonlatA, geometry geomlonlatB, spheroid measurement_spheroid)用法同上，加上个参数，特别适用于球体</li>
+<li>ST_DFullyWithin(geometry g1, geometry g2, double precision distance)，如果g1完全在指定距离的g2中则返回true<br>25.ST_DWithin(geometry g1, geometry g2, double precision distance_of_srid)几何对象g1在g2描述的距离内则返回true</li>
+<li>ST_Equals(geometry A, geometry B) 如果两个空间对象相等，则返回TRUE，忽略方向</li>
+<li>ST_HasArc(geometry geomA)如果geomA中包含circular string则返回true</li>
+<li>ST_Intersects( geometry geomA , geometry geomB ) 判断两个几何空间数据是否相交,如果相交返回true,不要使用GeometryCollection作为参数</li>
+<li>ST_Length(geometry a_2dlinestring)线或多线的长度return float</li>
+<li>ST_Length2D(geometry a_2dlinestring)同上，他的别名</li>
+<li>ST_3DLength(geometry a_3dlinestring)3D中返回线的长度，2D同ST_Length（）</li>
+<li>ST_Length_Spheroid(geometry a_linestring, spheroid a_spheroid)返回a_linestring的2D或3D的长度，多用于经纬度，不需要投影的</li>
+<li>ST_HausdorffDistance(geometry g1, geometry g2) 返回 g1和g2几何之间的Hausdorff距离</li>
+<li>ST_Length2D_Spheroid(geometry a_linestring, spheroid a_spheroid)计算2D长度</li>
+<li>ST_3DLength_Spheroid(geometry a_linestring, spheroid a_spheroid)计算3D的长度，ST_Length_Spheroid（）的别名</li>
+<li>ST_LongestLine(geometry g1, geometry g2) 返回两个几何的2维的线最长点</li>
+<li>ST_OrderingEquals(geometry A, geometry B) 如果给定的几何表示相同的几何形状，点是在相同的方向顺序则返回true</li>
+<li>ST_Overlaps(geometry A, geometry B) 如果两个几何空间数据存在交迭,则返回 TRUE,不要使用GeometryCollection作为参数。</li>
+<li>ST_Perimeter(geometry g1) ST_Surface 或ST_MultiSurface几何图形的周长</li>
+<li>ST_Perimeter2D(geometry geomA)2维周长</li>
+<li>ST_3DPerimeter(geometry geomA)返回周长</li>
+<li>ST_PointOnSurface(geometry g1)返回一个保证在平面内的点</li>
+<li>ST_Project(geography g1, float distance, float azimuth)返回一个点，距离distance之内，azimuth旋转角度范围的投影<br>44.　ST_Relate(geometry A,geometry B, text intersectionMatrixPattern)，<br>45.　ST_RelateMatch(text intersectionMatrix, text intersectionMatrixPattern)前者模式隐含后者则返回true</li>
+<li>ST_ShortestLine(geometry g1, geometry g2)返回g1和g2中最短的线</li>
+<li>ST_Touches(geometry g1, geometry g2)g1和g2存在接触但他们的内部不相交则返回true</li>
+<li>ST_Within(geometry A, geometry B)如果A完全在B的内部则返回true</li>
+</ol>
+<p>##　Geometry Processing</p>
+<p>1.　ST_Buffer(geometry g, float radius_of_buffer integer num_seg_quarter_circle)第一个参数是要操作的空间几何数据，第二个参数长度（距离），第三个参数为一个整型，这个函数返回一个空间数据类型，以当前第一个参数空间几何数据为参考点，返回小于等于距离的空间几何数据点，最后由这些点组成一个多边形空间数据，</p>
+<ol>
+<li>ST_BuildArea(geometry A) 创建由给定的几何线条组成的形成面几何</li>
+<li>ST_Collect(geometry[] g1_array)返回由多个g1_array组成的集合<br>4.ST_ConcaveHull(geometry geomA, float target_percent, boolean allow_holes=false)</li>
+<li>ST_ConvexHull(geometry geomA)包裹geomA的最小几何体<br>6.　ST_CurveToLine(geometry curveGeom)将CIRCULAR STRING转换为普通的 LINESTRING 或CURVEPOLYGON 转换为POLYGON</li>
+<li>ST_Difference(geometry geomA, geometry geomB) 返回一个几何空间数据A不同于空间数据B的几何空间数据类型</li>
+<li>ST_Dump(geometry g)返回组成g的路径数组</li>
+<li>ST_DumpPoints(geometry geom)返回组成geom的所有的点</li>
+<li>ST_DumpRings(geometry a_polygon)返回组成a_polygon的所有的环</li>
+<li>ST_FlipCoordinates(geometry geom)返回坐标点</li>
+<li>ST_Intersection( geometry geomA , geometry geomB )geomA和geomB的交集的点集，如果没有交集则返回empty geometry collection</li>
+<li>ST_LineToCurve(geometry geomANoncircular)强转LINESTRING/POLYGON 成 CIRCULARSTRING, CURVED POLYGON</li>
+<li>ST_MakeValid(geometry input)试图使输入的无效集合体有效而不丢失顶点</li>
+<li>ST_MemUnion(geometry set geomfield) 与ST_Union（）相同，但耗费更少的内存<br>16.　ST_MinimumBoundingCircle(geometry geomA, integer num_segs_per_qt_circ=48)返回最小的circle polygon，并且包裹几何体geomA</li>
+<li>ST_Polygonize(geometry[] geom_array) 使几何体多边形化</li>
+<li>ST_Node(geometry geom) 将geom分成一系列的linestring，数目最少的同时保持原来的集合体<br>19.　ST_OffsetCurve(geometry line, float signed_distance, text style_parameters=”)第一个参数必须为linestring，第二个参数偏移距离，第三个参数风格，quad_segs=#或join=round|mitre|bevel或mitre_limit=#.#</li>
+<li>ST_RemoveRepeatedPoints(geometry geom)返回geom去除他的重复点</li>
+<li>ST_SharedPaths(geometry lineal1, geometry lineal2)返回包含相同路径的几何体，必须为（multi）linestring</li>
+<li>ST_Shift_Longitude(geometry geom)读取geom中的每一个顶点，如果经度坐标小于0，就加上360，结果在0~360之间</li>
+<li>ST_Simplify(geometry geomA, float tolerance) 返回给定几何使用道格拉斯 - 普克算法“简化”版本</li>
+<li>ST_SimplifyPreserveTopology(geometry geomA, float tolerance) 返回使用道格拉斯 - 普克算法给出的几何形状的“简化”版本。将避免创建衍生的无效的几何形状（尤其是多边形）</li>
+<li>ST_Split(geometry input, geometry blade)返回几何体input被blade分割后的集合</li>
+<li>ST_SymDifference(geometry A, geometry B)返回A和B不相交的几何体，两个参数可以互换位置</li>
+<li>ST_Union(geometry g1, geometry g2) 返回一系列几何体的集合，比如两个point返回multipoint,不同类型的几何体返回GEOMETRYCOLLECTION</li>
+<li>ST_UnaryUnion(geometry geom)和ST_Union类似，不过一般working at the geometry component level</li>
+</ol>
+<p>##　Linear Referencing</p>
+<ol>
+<li>ST_Line_Interpolate_Point(geometry a_linestring, float a_fraction)第一个参数必须是linestring，第二个参数是0到1的float，返回线中的一个点</li>
+<li>ST_Line_Locate_Point(geometry a_linestring, geometry a_point)点在线中的所在位置的比例</li>
+<li>ST_Line_Substring(geometry a_linestring, float startfraction, float endfraction)截取线，从第二个参数开始，到第三个参数结束</li>
+<li>ST_LocateAlong(geometry ageom_with_measure, float a_measure, float offset)<br>5.ST_LocateBetween(geometry geomA, float measure_start, float measure_end, float offset)衍生的一个几何体，第二个参数开始点，第三个参数截止点，第四个参数偏移量<br>6.　ST_LocateBetweenElevations(geometry geom_mline, float elevation_start, float elevation_end)仅支持3D, 4D LINESTRINGS 和 MULTILINESTRINGS</li>
+<li>ST_InterpolatePoint(geometry line, geometry point)<br>8.　ST_AddMeasure(geometry geom_mline, float measure_start, float measure_end) 仅支持LINESTRINGS和MULTILINESTRINGS类型</li>
+</ol>
+<p>##　Long Transactions Support </p>
+<ol>
+<li>AddAuth(text auth_token)在当前事务中添加一个授权<br>2.　CheckAuth(text a_schema_name, text a_table_name, text a_key_column_name)为表创建一个触发器，防止基于授权的删除和更新一列</li>
+<li>DisableLongTransactions()<br> EnableLongTransactions()</li>
+<li>LockRow(text a_schema_name, text a_table_name, text a_row_key, text an_auth_token, timestamp expire_dt)锁定特定表的一列<br>5.　UnlockRows(text auth_token)解锁</li>
+</ol>
+<p>##　Miscellaneous Functions</p>
+<ol>
+<li>ST_Accum(geometry set geomfield)</li>
+<li>Box2D(geometry geomA)返回geomA中最大程度的BOX2D表示</li>
+<li>Box3D(geometry geomA)返回geomA中最大程度的BOX3D表示</li>
+<li>ST_Estimated_Extent(text schema_name, text table_name, text geocolumn_name)</li>
+<li>ST_Expand(geometry g1, float units_to_expand)几何体g1的边框向外扩展</li>
+<li>ST_Extent(geometry set geomfield)返回边框return box2d</li>
+<li>ST_3DExtent(geometry set geomfield)return box3d</li>
+<li>Find_SRID(varchar a_schema_name, varchar a_table_name, varchar a_geomfield_name)返回srid 模式名、表名、地理字段名return integer</li>
+<li>ST_Mem_Size(geometry geomA)返回geomA话费空间量</li>
+<li>ST_Point_Inside_Circle(geometry a_point, float center_x, float center_y, float radius)几何体是一个点，并且在指定的圈内返回true</li>
+</ol>
+<p>##　Exceptional Functions</p>
+<ol>
+<li>PostGIS_AddBBox(geometry geomA)给geomA添加一个边框，仅支持Circular Strings和Curves类型</li>
+<li>PostGIS_DropBBox(geometry geomA)删除边框</li>
+<li>PostGIS_HasBBox(geometry geomA)判断是否有边框</li>
+</ol>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[一个例子认识JavaScript的Web Worker]]></title>
+      <url>http://yoursite.com/2017/03/02/%E4%B8%80%E4%B8%AA%E4%BE%8B%E5%AD%90%E8%AE%A4%E8%AF%86JavaScript%E7%9A%84Web%20Worker/</url>
+      <content type="html"><![CDATA[<p>JavaScript是单线程的,至于为什么,简单地说,JavaScript在进行DOM操作的时候就显得明显了,这个线程修改节点,而另一个线程又删除此节点,这就显得棘手了.但是有了HTML5的web worker特性就出现了类似的多线程.<br><code>web worker 是运行在后台的 JavaScript，独立于其他脚本，不会影响页面的性能。您可以继续做任何愿意做的事情：点击、选取内容等等，而此时 web worker 在后台运行。</code><br>一般来做耗费CPU的事情,比如复杂计算,下面就举一个小例子,记录web worker的使用.<br><a id="more"></a></p>
+<h2 id="主线程"><a href="#主线程" class="headerlink" title="主线程"></a>主线程</h2><pre><code>if (typeof(Worker) !== &quot;undefined&quot;){//检测浏览器是否支持web worker
+        var w = new Worker(&quot;myworker.js&quot;); //定义一个worker对象
+        w.postMessage(num);//向子线程中传递消息 var num = 2
+        w.onmessage = function(event) { //onmessage事件接受子线程传来的数据
+            console.log(event.data);
+        };
+        w.onerror = function(err){  //出错处理
+            w.terminate();//关闭子线程
+        }
+    }else{
+        console.log(&quot;您的浏览器不支持Web Workers&quot;);
+    }
+</code></pre><h2 id="子线程"><a href="#子线程" class="headerlink" title="子线程"></a>子线程</h2><p>myworker.js中:</p>
+<pre><code>// importScripts(&apos;fn.js&apos;);//引入外部脚本,不允许跨域
+var num;
+onmessage = function(event) {   //子线程中也是利用onmessage事件接受消息
+    num = event.data;
+    function add(a) {    //在子线程中耗费CPU的计算
+        var count = a * 2;
+        postMessage(count);
+    }
+    add(num);
+    // add(num,num);    //
+};
+</code></pre><p>fn.js :// 3.24更新</p>
+<pre><code>function add (a,b) {
+    return a+b;
+}
+</code></pre><p>so easy!<br>注:由于 web worker 位于外部文件中，它们无法访问下例 JavaScript 对象：</p>
+<ol>
+<li>window 对象</li>
+<li>document 对象</li>
+<li>parent 对象</li>
+</ol>
+<p>我们可以做什么：<br>　　1. 可以加载一个JS进行大量的复杂计算而不挂起主进程，并通过postMessage，onmessage进行通信.<br>　　2. 可以在worker中通过importScripts(url)加载另外的脚本文件.<br>　　3. 可以使用 setTimeout(), clearTimeout(), setInterval(),  clearInterval().<br>　　4. 可以使用XMLHttpRequest来发送请求.<br>　　5. 可以访问navigator的部分属性.</p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[cesium之坐标问题]]></title>
+      <url>http://yoursite.com/2017/02/27/cesium%E4%B9%8B%E5%9D%90%E6%A0%87%E9%97%AE%E9%A2%98/</url>
+      <content type="html"><![CDATA[<p>记录项目中能用到的坐标问题,避免再次入坑.<br><a id="more"></a></p>
+<ol>
+<li><p>根据经纬度获取高度:</p>
+<p> var height = viewer.scene.globe.getHeight(Cesium.Cartographic.fromDegrees(x, y));</p>
+</li>
+<li><p>点击屏幕获取此处的经纬度:<br>使用jQuery绑定了document的单击事件:</p>
+<pre><code>$(document).bind(&quot;click&quot;,function(e) {
+    var NW = new Cesium.Cartesian2(e.pageX, e.pageY);
+    var pick1 = viewer.scene.globe.pick(viewer.camera.getPickRay(NW),viewer.scene);
+    //将三维坐标转成地理坐标
+    var geoPt1 = viewer.scene.globe.ellipsoid.cartesianToCartographic(pick1);
+    var gaodu = viewer.scene.globe.getHeight(geoPt1);
+    //地理坐标转换为经纬度坐标
+    var point1 = [geoPt1.longitude / Math.PI * 180, geoPt1.latitude /Math.PI * 180];
+    // console.log(point1+&quot;,&quot;+gaodu);
+</code></pre></li>
+<li><p>笛卡尔坐标转换wgs84:</p>
+<p> //获取三维几何球体<br> var ellipsoid = viewer.scene.globe.ellipsoid;<br> var x = viewer.camera.position.x;<br> var y = viewer.camera.position.y;<br> var z = viewer.camera.position.z;<br> var xyz = new Cesium.Cartesian3(x, y, z);<br> var wgs84 = ellipsoid.cartesianToCartographic(xyz);<br> console.log(‘lng=’ + Cesium.Math.toDegrees(wgs84.longitude) + ‘,lat=’ + Cesium.Math.toDegrees(wgs84.latitude) + ‘,alt=’ + wgs84.height);</p>
+</li>
+</ol>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[HTTP错误500.0 - Internal Server Error]]></title>
+      <url>http://yoursite.com/2017/02/23/HTTP%E9%94%99%E8%AF%AF500-0-Internal-Server-Error/</url>
+      <content type="html"><![CDATA[<p>北京的事算是忙过去了,就等那边来电话查看了.回过头来看看公司的主打项目,发现却不能打开了,报错:</p>
+<pre><code>HTTP 错误 500.0 - Internal Server Error，无法在&lt;fastCGI&gt;应用程序配置中找到&lt;handler&gt; scriptProcessor.
+</code></pre><p>还好IIS提示的信息够多:</p>
+<pre><code>模块  FastCgiModule 通知    ExecuteRequestHandler 
+处理程序  qgis mapserver 错误代码 0x8007010b
+</code></pre><p>看到 <strong>应用程序配置</strong> 和 <strong>qgis mapserver</strong>,应该是这个模块没有起作用,就找到项目下的这个文件,发现还在啊,就打开IIS管理器,找到fastCGI设置找到这个应用程序,也没问题,又打开web.config配置文件,找到scriptProcessor节点,发现路径错了,还指向原来的目录,原因是c盘不够大的,我把原来的项目移到了其他盘,然而配置文件还去找那个文件,当然会出错了.<br>虽然问题是小问题,但他似乎象征着一个解决问题的思路,特此记录一下,顺便表示:微软大法好!!!</p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[ES6语法之Set和Map]]></title>
+      <url>http://yoursite.com/2017/02/22/ES6%E8%AF%AD%E6%B3%95%E4%B9%8BSet%E5%92%8CMap/</url>
+      <content type="html"><![CDATA[<p>空闲下来,读了读&lt;<ecmascript 6入门="">&gt;,全面介绍了ES6语法的新特性.<br><a id="more"></a></ecmascript></p>
+<h1 id="Set"><a href="#Set" class="headerlink" title="Set"></a>Set</h1><p>类似于数组,只是值都是唯一的</p>
+<ol>
+<li><p>构造</p>
+<p> let set = new Set();<br> set.add(1).add(2).add(1).add(3);//Set { 1, 2, 3 }<br> set.size;   //3</p>
+</li>
+</ol>
+<p>也可以传一个数组</p>
+<pre><code>let set = new Set([1,2,3,1]);
+</code></pre><p>注: 两个NaN是相等的,两个对象总是不等的</p>
+<ol>
+<li><p>方法</p>
+<p> set.add(value);//添加<br> set.has(value);//true or false<br> set.delete(value);//ture or false<br> set.clear();//清除</p>
+</li>
+<li>遍历</li>
+</ol>
+<p>keys()和values()效果一样:</p>
+<pre><code>set.keys();//SetIterator { 1, 2, 3 }
+for(let a of set.keys()){
+    console.log(a);//1,2,3
+}
+</code></pre><p>entries():返回的遍历器包括键名和键值:</p>
+<pre><code>for(let of set.entries()){
+    console.log(a);//[ 1, 1 ][ 2, 2 ][ 3, 3 ]
+}
+</code></pre><p>forEach()回调函数:</p>
+<pre><code>set.forEach((value,key)=&gt;{
+    console.log(value);
+})
+</code></pre><h1 id="Map"><a href="#Map" class="headerlink" title="Map"></a>Map</h1><p>比object强大的多,一种键值对,他的键不仅可以为字符串,还可以是对象,直接放栗子</p>
+<ol>
+<li><p>构造</p>
+<p> let map = new Map();<br> let o = {v:”key”};<br> map.set(o,’first’);//Map { { value: ‘key’ } =&gt; ‘first’ }</p>
+</li>
+</ol>
+<p>也可以传一个数组:</p>
+<pre><code>let map = new Map([[&apos;name&apos;,&apos;chao&apos;],[&apos;age&apos;,23]]);//Map { &apos;name&apos; =&gt; &apos;chao&apos;, &apos;age&apos; =&gt; 23 }
+</code></pre><ol>
+<li><p>方法: </p>
+<p> map.set(value,key);//添加<br> map.get(value);//key or undefined<br> map.has(value);//true or false<br> map.delete(value);//ture or false<br> map.clear();//清除</p>
+</li>
+</ol>
+<p>注:字符串的true和布尔的true不是同一个键.</p>
+<ol>
+<li>遍历</li>
+</ol>
+<p>keys(): 键</p>
+<pre><code>for(let key of map.keys()){console.log(key);}
+</code></pre><p>values():值</p>
+<pre><code>for(let key of map.keys()){console.log(value);}
+</code></pre><p>entries():</p>
+<pre><code>for(let [k,v] of map.entries()){console.log(k+&apos;:&apos;+v);}
+结果:name:chao
+     age:23
+</code></pre><p>forEach():   </p>
+<pre><code>map.forEach(function(k,v,map){console.log(k,v,map)}
+</code></pre><p>结果:</p>
+<pre><code>chao name Map { &apos;name&apos; =&gt; &apos;chao&apos;, &apos;age&apos; =&gt; 23 }
+23 &apos;age&apos; Map { &apos;name&apos; =&gt; &apos;chao&apos;, &apos;age&apos; =&gt; 23 }
+</code></pre><h1 id="类型装换"><a href="#类型装换" class="headerlink" title="类型装换"></a>类型装换</h1><ol>
+<li>Map转数组<br>使用扩展运算符(…)</li>
+<li>数组转Map<br>把数组传入Map的构造函数</li>
+<li><p>Map转对象</p>
+<p> function map2obj(map){</p>
+<pre><code>let obj = Object.create(null);
+for(let [k,v] of map){
+    obj[k] = v;
+}
+return obj;
+</code></pre><p> }</p>
+</li>
+<li><p>对象转Map:</p>
+<p> function obj2map(obj){</p>
+<pre><code>let map = new Map();
+for(let k of Object.keys(obj)){
+    map.set(k,obj[k]);
+}
+return map;
+</code></pre><p> }</p>
+</li>
+</ol>
+<p>就酱紫~</p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[cesium加载3dmax模型遇到的问题]]></title>
+      <url>http://yoursite.com/2017/02/15/cesium%E5%8A%A0%E8%BD%BD3dmax%E6%A8%A1%E5%9E%8B%E9%81%87%E5%88%B0%E7%9A%84%E9%97%AE%E9%A2%98/</url>
+      <content type="html"><![CDATA[<p>北京的项目中,拿到了.max格式的模型,记录一下.max文件导出gltf的正确方式.<br><a id="more"></a></p>
+<h2 id="安装准备"><a href="#安装准备" class="headerlink" title="安装准备"></a>安装准备</h2><p><a href="">3ds Max 2014</a>,<a href="https://github.com/ChaosSoong/daeTogltf_tool" target="_blank" rel="external">COLLADAMax.dle插件</a><a href="https://github.com/ChaosSoong/daeTogltf_tool" target="_blank" rel="external">daeTogltf工具</a><br><img src="../../../../imgs/collada2gltf.png" alt="插件"><br>,Autodesk自家的dae格式导出后无法使用,用这个格式才可以,至于为什么,标准问题吧.<br>然后把这个文件放到3dmax安装目录的stdplugs文件夹下,打开3dmax/自定义下的插件管理器,加载该插件,准备完毕.<br><img src="../../../../imgs/插件管理.png" alt="插件管理器"></p>
+<h2 id="导出选项"><a href="#导出选项" class="headerlink" title="导出选项"></a>导出选项</h2><p><img src="../../../../imgs/导出格式.png" alt="导出格式"></p>
+<ol>
+<li>打开max文件,导出obj格式的文件,注意导出选项:<br><img src="../../../../imgs/obj选项.png" alt="obj选项"></li>
+<li>打开导出的obj文件,导出open格式<br><img src="../../../../imgs/dae选项.png" alt="dae选项"></li>
+<li><p>dae转换为gltf文件,<strong>dae和转换文件最好在同一目录下</strong><br>打开命令行输入<code>collada2gltf.exe your_dae.dae</code> 等待完成</p>
+<h2 id="加载"><a href="#加载" class="headerlink" title="加载"></a>加载</h2><p> var p = Cesium.Cartesian3.fromDegrees(116, 39, 10);<br> var modelEntity = viewer.entities.add({</p>
+<pre><code>    position: p,
+    model: {
+        uri: &apos;your_gltf_url.gltf&apos;,
+        scale: 1
+    }
+}); 
+</code></pre><p> viewer.trackedEntity = modelEntity;//加载后直接定位到模型查看<br><img src="../../../../imgs/效果.png" alt="效果"></p>
+<h1 id="导出目录千万别有中文"><a href="#导出目录千万别有中文" class="headerlink" title="导出目录千万别有中文"></a>导出目录千万别有中文</h1><h1 id="导出目录千万别有中文-1"><a href="#导出目录千万别有中文-1" class="headerlink" title="导出目录千万别有中文"></a>导出目录千万别有中文</h1><h1 id="导出目录千万别有中文-2"><a href="#导出目录千万别有中文-2" class="headerlink" title="导出目录千万别有中文"></a>导出目录千万别有中文</h1></li>
+</ol>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[谈谈JavaScript的灵活性]]></title>
+      <url>http://yoursite.com/2017/02/10/%E8%B0%88%E8%B0%88JavaScript%E7%9A%84%E7%81%B5%E6%B4%BB%E6%80%A7/</url>
+      <content type="html"><![CDATA[<p>javascript是现在最流行,应用最广泛的语言,也是在github上开源项目使用最多的语言,很大的原因得益于其强大的灵活性,JavaScript程序员可以把程序写得很简单,同样也可以把他写的很复杂.这种语言也支持不同的编程风格,可以采用函数式编程风格,也可以面向对象式的编程风格.下面就简单聊聊我眼中的JavaScript的灵活性.<br><a id="more"></a><br>来一个用不同方法来实现同样任务的例子:写文档和改bug,例子可能不够贴切,尽量理解好伐.</p>
+<h2 id="1"><a href="#1" class="headerlink" title="1"></a>1</h2><p>面向过程是的程序设计,就像这样:</p>
+<pre><code>function writeDocument(){
+    console.log(&quot;这是一件很烦的事&quot;);
+};
+fuction fixBug(name){
+    console.log(name + &quot;说这是一件很有意思的事情&quot;);
+}
+</code></pre><h2 id="2"><a href="#2" class="headerlink" title="2"></a>2</h2><p>有意思的是在ＥＳ６里加入了箭头函数，类似这样:<code>(param1, param2, …, paramN) =&gt; { statements }</code>改写上面两个方法就简单多了：</p>
+<pre><code>()=&gt;{&quot;这是一件很烦的事&quot;;}
+(name)=&gt;{name+&quot;说这是一件很有意思的事情&quot;;}
+</code></pre><p>确实省了不少代码吧,其实箭头函数返回的也是Function.</p>
+<h2 id="3"><a href="#3" class="headerlink" title="3"></a>3</h2><p>这种方法简单易懂,但无法创建可以保存状态并且具有一些斤对其内部状态进行操作的方法的对象,所以就产生了这种:</p>
+<pre><code>var Coder = function(){
+    ...
+}
+Coder.prototype.writeDocument = function(){
+    console.log(&quot;这是一件很烦的事&quot;);
+}
+Coder.prototype.fixBug = function(name){
+    console.log(name+&quot;说这是一件很有意思的事情&quot;);
+}
+</code></pre><p>使用如下:</p>
+<pre><code>var coder = new Coder();
+coder.writeDocument();
+coder.fixBug(&quot;fuck&quot;);
+</code></pre><h2 id="4"><a href="#4" class="headerlink" title="4"></a>4</h2><p>上述代码定义了一个Coder类,并把两个方法赋值给他的prototype属性,当然你也可以封装在一条声明中,就像这样:</p>
+<pre><code>var Coder = function(){
+    ...
+}
+Coder.prototype = {
+   writeDocument : function(){
+    console.log(&quot;这是一件很烦的事&quot;);
+    }
+   fixBug : function(name){
+    console.log(name+&quot;说这是一件很有意思的事情&quot;);
+    } 
+} 
+</code></pre><h2 id="5"><a href="#5" class="headerlink" title="5"></a>5</h2><p>接下来吧类的方法的声明内潜在类的声明中:</p>
+<pre><code>Function.prototype.method = function(name,fn){
+    this.prototype[name] = fn;
+}
+var Coder = function(){};
+Coder.method(&quot;writeDocument&quot;,function(){});
+Coder.method(&quot;fixBug&quot;,function(name){});
+</code></pre><p>Function.prototype.method用于为类添加新的方法,第一个参数为字符串,表示新的方法的名称,第二个参数即为函数.</p>
+<p>##　６<br>可也以进一步修改Funtion.prototype.method方法,使其可被链式调用,就像jQuery一样,只需让他返回this即可:</p>
+<pre><code>Function.prototype.method = function(name,fn){
+    this.prototype[name] = fn;
+    return this;
+}
+var Coder = function(){};
+Coder.method(&quot;writeDocument&quot;,function(){});
+Coder.method(&quot;fixBug&quot;,function(name){});
+</code></pre><p>使用如下:</p>
+<pre><code>var Coder = function(){};
+Coder.
+    method(&quot;writeDocument&quot;,function(){
+        console.log(&quot;这是一件很烦的事&quot;);
+        }).
+    Coder.method(&quot;fixBug&quot;,function(name){
+        console.log(name+&quot;说这是一件很有意思的事情&quot;);
+        });
+</code></pre><h2 id="7"><a href="#7" class="headerlink" title="7"></a>7</h2><p>ES6用了关键字class,就感觉熟悉多了:</p>
+<pre><code>class Coder(){
+    //构造器
+    constructor(name){
+        this.name = name;
+    };
+    writeDocument(){
+        console.log(&quot;这是一件很烦的事&quot;);
+    };
+    fixBug(){
+        console.log(this.name+&quot;说这是一件很有意思的事情&quot;);
+    }
+}
+</code></pre><p>使用如下:</p>
+<pre><code>var coder = new Coder(&quot;fuck&quot;);
+fuck.writeDocument();
+fuck.fixBug();
+</code></pre><p>这几种编程风格哪一种适合你呢?<br>以上仅是个人理解,如有错误,还请请教.</p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[我的2016]]></title>
+      <url>http://yoursite.com/2017/01/24/%E6%88%91%E7%9A%842016/</url>
+      <content type="html"><![CDATA[<p>在过去的2016年年底的时候,就看见网上的各个编程大牛开始总结自己的2016,翻看了他们的总结,感觉自己甚是渺小,心想,大牛们一年那么多事要干,而且文笔也好,肯定有不少东西要写,而我呢,又有什么要写的呢?趁着闲下来的时间回想了一下,便出现了这篇.<br><a id="more"></a></p>
+<h2 id="关于毕业"><a href="#关于毕业" class="headerlink" title="关于毕业"></a>关于毕业</h2><p>四年的大学生涯一转眼就过去了,刚踏入母校时的情景犹如昨日一样清晰可见.为了能继续我的求学生涯,15年8月份就准备考研,闭关了将近四个月,结果却以失败告终,单科差了两分,曾经也想过报考二区院校,后来也想也许这就是命,让我早日踏入社会承担该承担的责任.寒假回来就想着准备找工作.然而刚回来就去北京参观实习,说起来好听其实就是让你去参加培训,几个同学没有抵住诱惑去北京参加长达四个月的培训,而我也没有闲下来,边找工作边完成毕业设计,不久,便进入了现在的这第一家公司,从第一天上班到顺利毕业,可能是我这四年最充实的时间.<br>还是先回想一下我毕业设计的课题吧，＜＜基于Ａｎｄｒｏｉｄ的智慧云班的设计与实现＞＞，目的就是要加强学校与家庭的沟通，让孩子更好的成长，主要用户就是孩子家长和学校工作人员．，客户端使用ｅｃｌｉｐｓｅ＋ａｎｄｒｏｉｄ　ｓｄｋ开发工具，服务器端使用ＭｙＥｃｌｉｐｓｅ，数据库开源小巧的ＭｙＳＱＬ，主要技术，就是客户端与服务器端的交互．这也是我第一次要一个项目，尽管小，但对于我来说意义非凡，让我了解了一款ＡＰＰ的流程，从需求分析，到设计，再到编码，最后的测试等都是我一个人来完成，当然，我一个人怎么能完成，陪我的还有ｂａｉｄｕ和Ｇｏｏｇｌｅ两大神器．说实话,真是从这时候我才真正爱上编程的,也从这时候走上程序猿这条单身不归路.</p>
+<h2 id="关于工作"><a href="#关于工作" class="headerlink" title="关于工作"></a>关于工作</h2><p>上班的前两周只要熟悉公司的业务,了解一下公司所用的技术,当时什么也不懂,现在回想一下,是一家做gis软件的,主要维护这一个项目.其中前端包括openlayers2,一个二维地图引擎,cesium,一个三维地图引擎,这也是目前我负责的,除此还用到了jQuery的选择器,事件,ajax等,还有Extjs4富客户端框架,后端语言是C#,ASP.NET MVC框架,数据库选用的是postgresql,嗯,就是这些,再有就是加一些额外的需求了.公司比较小,就是几个人的团队,每个人都负责不同的方向,所以每每出现问题,都只能靠百度和谷歌,对自己的成长也算帮助不少.</p>
+<h2 id="关于编程"><a href="#关于编程" class="headerlink" title="关于编程"></a>关于编程</h2><p>除了上班工作能码代码之外,剩余时间除了健身,基本上都是在学习编程了,毕竟入门晚了,也没有大牛指导,所以就自己私底下学习,记录一下学过的东西:</p>
+<ol>
+<li>高端大气上档次的git,<a href="http://www.liaoxuefeng.com/wiki/0013739516305929606dd18361248578c67b8067c8c017b000" target="_blank" rel="external">廖雪峰git</a>,这也是公司所用的,版本控制管理.</li>
+<li>GitHub最火的语言JavaScript,<a href="http://www.liaoxuefeng.com/wiki/001434446689867b27157e896e74d51a89c25cc8b43bdb3000" target="_blank" rel="external">也是廖大大的教程</a>,在公司也主要用这个脚本语言.</li>
+<li>目前最优雅的后端语言Python,还是廖大大的教程,包括<a href="http://www.liaoxuefeng.com/wiki/001374738125095c955c1e6d8bb493182103fac9270762a000" target="_blank" rel="external">2.7</a>和<a href="http://www.liaoxuefeng.com/wiki/0014316089557264a6b348958f449949df42a6d3a2e542c000" target="_blank" rel="external">3</a>两个版本,廖大大这么无私的奉献,这应该赞助一把,<a href="http://www.liaoxuefeng.com/webpage/donate" target="_blank" rel="external">入口</a>.</li>
+<li>运行在服务器端的JavaScript—node.js也是很火,一门js语言就能让你成为一个前后端通吃的程序猿,有点全栈的意思了,学习的是<a href="http://www.runoob.com/nodejs/nodejs-tutorial.html" target="_blank" rel="external">菜鸟教程</a>提供的教程.</li>
+<li>接触的第一个前端框架bootstrapt,来自 Twitter，是目前最受欢迎的前端框架,除了菜鸟提供的<a href="http://www.runoob.com/bootstrap/bootstrap-tutorial.html" target="_blank" rel="external">教程</a>,还看了李炎恢的教学视频.</li>
+<li>MongoDB 是由C++语言编写的，是一个基于分布式文件存储的开源数据库系统。以前接触的数据库像oracle,sql server,mysql等都是结构化,而mongodb将数据存储为一个文档，数据结构由键值(key=&gt;value)对组成。MongoDB 文档类似于 JSON 对象。字段值可以包含其他文档，数组及文档数组。<a href="http://www.runoob.com/mongodb/mongodb-tutorial.html" target="_blank" rel="external">菜鸟教程</a>,<a href="http://blog.csdn.net/column/details/mongodbbasicguide.html" target="_blank" rel="external">CSDN专栏</a>.</li>
+<li>最后就是正在学习的vue.js了,这是咱国人自己维护的项目,渐进式JavaScript,不久便火了起来,通过尽可能简单的 API 实现响应的数据绑定和组合的视图组件.<a href="http://cn.vuejs.org/" target="_blank" rel="external">官方中文教程</a>,如果英文好,可以直接阅读英文版.<br>这些都是PC端的,当然不能对这电脑一整天了,还有手机端的APP,健身时,睡觉前,都会阅读一些文章,看一些视频,也有助于睡眠呢,比如,掘金,慕课网,网易云课堂,CSDN,开发者头条,简书,推酷,博客园,segmentFault,知乎等等等,以上的这些都只是入门,还需要深入学习,活到老,学到老嘛.<h2 id="关于感情"><a href="#关于感情" class="headerlink" title="关于感情"></a>关于感情</h2>这是一个悲伤的事,一直对我的object很钟情.<h2 id="关于未来"><a href="#关于未来" class="headerlink" title="关于未来"></a>关于未来</h2>不管将来做什么,都希望自己有质的飞跃,就酱.</li>
+</ol>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[离散点最大边界算法]]></title>
+      <url>http://yoursite.com/2017/01/19/%E7%A6%BB%E6%95%A3%E7%82%B9%E6%9C%80%E5%A4%A7%E8%BE%B9%E7%95%8C%E7%AE%97%E6%B3%95/</url>
+      <content type="html"><![CDATA[<p>还记得当初找工作时的第一期望就是能找一个和算法相关的工作,可是事与愿违,被拉进来一家gis方面的软件公司,既来之则安之,工作了半年多,终于也遇见了一个算法,最优路径,当初在学校是曾经稍微写过一点,然而postgis又提供了这样一个函数,直接拿来用就好了,自己也就没太走心.如今,又有一个新的需求,爆管分析,就是有一个管点出现问题了,我能用postgis函数找到它周围所有相连的管点,再从这些管点中找出它们的最大范围.简而言之,就是求离散点的最大边界.<br><a id="more"></a></p>
+<h2 id="定义离散点类"><a href="#定义离散点类" class="headerlink" title="定义离散点类"></a>定义离散点类</h2><pre><code>public class point
+{
+    public Nullable&lt;decimal&gt; x { get; set; }
+    public Nullable&lt;decimal&gt; y { get; set; }
+    /**
+     * 边界查找算法中 是否被找到
+     */
+    public bool founded = false;
+    public point(Nullable&lt;decimal&gt; x, Nullable&lt;decimal&gt; y)
+    {
+        this.x = x;
+        this.y = y;
+    }
+    public bool equals(point other)
+    {
+        if (this.x != other.x)
+            return false;
+        if (this.y != other.y)
+            return false;
+        return true;
+    }
+}
+</code></pre><h2 id="离散点工具类"><a href="#离散点工具类" class="headerlink" title="离散点工具类"></a>离散点工具类</h2><pre><code>public class Utils
+{
+/**
+ * &lt;p&gt;
+ * &lt;b&gt;求两点之间的长度&lt;/b&gt;
+ * &lt;p&gt;
+ * &lt;pre&gt;
+ * 求两点之间的长度
+ * &lt;/pre&gt;
+ * @param   ws  西南点
+ * @param   en  东北点
+ * @return  两点之间的长度
+ */
+public static double calLineLen(point ws, point en) {
+    if (null == ws || null == en) {
+        return .0;
+    }
+    if (ws.equals(en)) {
+        return .0;
+    }
+    double a = Math.Abs(Convert.ToDouble(ws.x) - Convert.ToDouble(en.x)); // 直角三角形的直边a
+    double b = Math.Abs(Convert.ToDouble(ws.y) - Convert.ToDouble(en.y)); // 直角三角形的直边b
+    double min = Math.Min(a, b); // 短直边
+    double max = Math.Max(a, b); // 长直边
+    /**
+     * 为防止计算平方时float溢出，做如下转换
+     * √(min²+max²) = √((min/max)²+1) * abs(max)
+     */
+    double inner = min / max;
+    return Math.Sqrt(inner * inner + 1.0) * max;
+}
+
+/**
+ * &lt;p&gt;
+ * &lt;b&gt;计算向量角&lt;/b&gt;
+ * &lt;p&gt;
+ * &lt;pre&gt;
+ * 计算两点组成的向量与x轴正方向的向量角
+ * &lt;/pre&gt;
+ * @param   s   向量起点
+ * @param   d   向量终点
+ * @return  向量角
+ */
+public static double angleOf(point s, point d) {
+    double dist = calLineLen(s, d);
+    if (dist &lt;= 0) {
+        return -1;
+    }
+    double x = Convert.ToDouble(d.x - s.x); // 直角三角形的直边a
+    double y = Convert.ToDouble(d.y - s.y); // 直角三角形的直边b
+    if (y &gt;= 0) { /* 1 2 象限 */
+        return Math.Acos(x / dist);
+    } else { /* 3 4 象限 */
+        return Math.Acos(-x / dist) + Math.PI;
+    }
+}
+/**
+ * &lt;p&gt;
+ * &lt;b&gt;修正角度&lt;/b&gt;
+ * &lt;p&gt;
+ * &lt;pre&gt;
+ * 修正角度到 [0, 2PI]
+ * &lt;/pre&gt;
+ *
+ * @author  ManerFan 2015年4月17日
+ * @param   angle   原始角度
+ * @return  修正后的角度
+ */
+public static double reviseAngle(double angle) {
+    while (angle &lt; 0) {
+        angle += 2 * Math.PI;
+    }
+    while (angle &gt;= 2 * Math.PI) {
+        angle -= 2 * Math.PI;
+    }
+    return angle;
+}
+}
+</code></pre><h2 id="寻找起始点坐标"><a href="#寻找起始点坐标" class="headerlink" title="寻找起始点坐标"></a>寻找起始点坐标</h2><pre><code>/** 查找起始点（保证y最大的情况下、尽量使x最小的点） */
+ private static point findStartpoint(List&lt;point&gt; ps)
+    {
+        if (null == ps || ps.Count() == 0)
+        {
+            return null;
+        }
+        point p = ps[0];
+        for (int i = 0; i &lt; ps.Count(); i++)
+        {
+            if (ps[i].y &gt; p.y || (ps[i].y == p.y &amp;&amp; ps[i].x &lt; p.x))
+            { /* 找到最靠上靠左的点 */
+                p = ps[i];
+            }
+        }
+        return p;
+    }
+</code></pre><h2 id="最大边界算法"><a href="#最大边界算法" class="headerlink" title="最大边界算法"></a>最大边界算法</h2><pre><code>public List&lt;point&gt; findSmallestPolygon(List&lt;point&gt; ps)
+   {
+       JsonResult result = new JsonResult();
+       //ps = test();  //测试数据
+       if (null == ps || ps.Count()==0)
+       {
+           //ps = test();  //测试数据
+           return null;
+       }
+       point corner = findStartpoint(ps);
+       if (null == corner)
+       {
+           return null;
+       }
+       double minAngleDif, oldAngle = 2 * Math.PI;
+       List&lt;point&gt; bound = new List&lt;point&gt;();
+       do
+       {
+           minAngleDif = 2 * Math.PI;
+           bound.Add(corner);
+           point nextpoint = corner;
+           double nextAngle = oldAngle;
+           foreach (point p in ps)
+           {
+               if (p.founded)
+               { // 已被加入边界链表的点
+                   continue;
+               }
+               if (p.equals(corner))
+               { // 重合点
+                   /*if (!p.equals(bound.getFirst())) {
+                       p.founded = true;
+                   }*/
+                   continue;
+               }
+               double currAngle = Utils.angleOf(corner, p); /* 当前向量与x轴正方向的夹角 */
+               double angleDif = Utils.reviseAngle(oldAngle - currAngle); /* 两条向量之间的夹角（顺时针旋转的夹角） */
+               if (angleDif &lt; minAngleDif)
+               {
+                   minAngleDif = angleDif;
+                   nextpoint = p;
+                   nextAngle = currAngle;
+               }
+           }
+           oldAngle = nextAngle;
+           corner = nextpoint;
+           corner.founded = true;
+       } while (!corner.equals(bound[0])); /* 判断边界是否闭合 */
+       //result.Data = bound;
+       //result.JsonRequestBehavior = JsonRequestBehavior.AllowGet;
+       //return result;
+       return bound;
+   }
+</code></pre><h2 id="测试数据"><a href="#测试数据" class="headerlink" title="测试数据"></a>测试数据</h2><pre><code>public static List&lt;point&gt; test() {
+        List&lt;point&gt; ps = new List&lt;point&gt;();
+        ps.Add(new point(1, 1));
+        ps.Add(new point(1, 2));
+        ps.Add(new point(2, 3));
+        ps.Add(new point(2, 4));
+        ps.Add(new point(3, 5));
+        ps.Add(new point(4, 4));
+        ps.Add(new point(5, 4));
+        ps.Add(new point(5, 3));
+        ps.Add(new point(4, 2));
+        ps.Add(new point(4, 1)); 
+        ps.Add(new point(3, 1));
+        ps.Add(new point(2, 2));
+        // 以上为所求结果
+        ps.Add(new point(3, 2));
+        ps.Add(new point(3, 3));
+        ps.Add(new point(4, 3));
+        ps.Add(new point(3, 4));
+        return ps;
+    }
+</code></pre>]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[cesium图形添加视频]]></title>
+      <url>http://yoursite.com/2017/01/13/cesium%E5%9B%BE%E5%BD%A2%E6%B7%BB%E5%8A%A0%E8%A7%86%E9%A2%91/</url>
+      <content type="html"><![CDATA[<p>前两天总经理接到一个北京的小项目,需要展示立交桥的地理位置,需求就是展示北京一处立交桥的地理信息,包括航拍图,立交桥模型,地形图.正好也总结一下用到的技术.<br><a id="more"></a></p>
+<h2 id="初始化"><a href="#初始化" class="headerlink" title="初始化"></a>初始化</h2><p>项目初始化参照<a href="https://chaossoong.github.io/2016/06/17/cesium%E8%87%AA%E5%AD%A6%E7%BB%8F%E9%AA%8C/" target="_blank" rel="external">这一篇</a></p>
+<h2 id="航拍图"><a href="#航拍图" class="headerlink" title="航拍图"></a>航拍图</h2><p>使用qgis的插件</p>
+<pre><code>var layers = viewer.imageryLayers;
+layers.addImageryProvider(new Cesium.WebMapServiceImageryProvider({
+    url: &apos;/qgis/bin/qgis_mapserv.fcgi?map=c:/maps/bj.qgs&apos;,
+    layers: &apos;CQDOM&apos;,//图层名称
+    parameters: {
+        transparent: &apos;true&apos;,
+        format: &apos;image/png&apos;
+    }
+}));
+</code></pre><p>这样加载出来的地图整体为蓝色的,难看,就又加载了一个离线的圈球缩略图.(一个切片地图)这是cesium官网提供的一个示例</p>
+<pre><code>var tms = Cesium.createTileMapServiceImageryProvider({
+    url: Cesium.buildModuleUrl(&apos;/Assets/Textures/NaturalEarthII&apos;)
+});
+layers.addImageryProvider(tms);
+</code></pre><h2 id="三维模型"><a href="#三维模型" class="headerlink" title="三维模型"></a>三维模型</h2><p>我拿到的模型是.max格式的,需要转化为gltf格式,<a href="http://blog.csdn.net/l491453302/article/details/46766909" target="_blank" rel="external">参考博客</a> ,加载模型:</p>
+<pre><code>var position = Cesium.Cartesian3.fromDegrees(116.0645, 39.9288, 45);
+var entity = viewer.entities.add({
+    position: position,
+    allowPicking: false,//禁止点选
+    model: {
+        uri: &apos;model/li/li.gltf&apos;,
+        scale: 1,
+    }
+});
+</code></pre><h2 id="地形图"><a href="#地形图" class="headerlink" title="地形图"></a>地形图</h2><p>地形图需要单独启动一个服务</p>
+<pre><code>var terrainProvider = new Cesium.CesiumTerrainProvider({
+    url: &apos;http://localhost:8000/tilesets/test/&apos;,
+    requestWaterMask: true,
+    requestVertexNormals: true
+});
+viewer.terrainProvider = terrainProvider;
+</code></pre><h2 id="entity加视频"><a href="#entity加视频" class="headerlink" title="entity加视频"></a>entity加视频</h2><p>这是用html5的video标签,暂时支持三种格式webm,mp4,mov<br>定义标签:</p>
+<pre><code>&lt;video id=&quot;trailer&quot; style=&quot;display: none;&quot; autoplay=&quot;&quot; loop=&quot;&quot; crossorigin=&quot;&quot; controls=&quot;&quot;&gt;
+    &lt;source src=&quot;http://cesiumjs.org/videos/Sandcastle/big-buck-bunny_trailer.webm&quot; type=&quot;video/webm&quot;&gt;
+    &lt;source src=&quot;http://cesiumjs.org/videos/Sandcastle/big-buck-bunny_trailer.mp4&quot; type=&quot;video/mp4&quot;&gt;
+    &lt;source src=&quot;http://cesiumjs.org/videos/Sandcastle/big-buck-bunny_trailer.mov&quot; type=&quot;video/quicktime&quot;&gt; Your browser does not support the &lt;code&gt;video&lt;/code&gt; element.
+&lt;/video&gt;
+</code></pre><p>获取标签:</p>
+<pre><code>var videoElement = document.getElementById(&apos;trailer&apos;);
+</code></pre><p>添加视频:<br>polygon的material值为video元素</p>
+<pre><code>var Polygon = viewer.entities.add({
+    allowPicking: false,
+    polygon: {
+        hierarchy: Cesium.Cartesian3.fromDegreesArray([
+            116.34266424258673,39.888246814172334,
+            116.34283551162602,39.888246814172334,
+            116.34283551162602,39.88803778840221,
+            116.34266424258673,39.88803778840221,
+            116.34266424258673,39.888246814172334
+        ]),
+        material: videoElement,
+        height: 37      //高度
+    }
+});
+</code></pre><p>大功告成,累了写篇文章记录一下,还是蛮可以的嘛,最近在搞vue.js,继续学习去了.</p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[AutoCAD实用小技巧]]></title>
+      <url>http://yoursite.com/2017/01/05/AutoCAD%E5%AE%9E%E7%94%A8%E5%B0%8F%E6%8A%80%E5%B7%A7/</url>
+      <content type="html"><![CDATA[<p>自从上次领导讲完cad的导出程序后,便一发不可收拾,各地的供电局相继发来需求,要求各个配电线路的cad图纸,用程序导出的cad视图没有在中心点,每次都需要平移到相应坐标处,然后再输入re命令(全部重新生成模型),最后保存才能使中心点出现在视图当中,cad太多,就给工程那边帮帮忙,可是那也太踏马烦了,重复几次还可以,上百次上千次就不行了.后来才发现一个小技巧,简直了,双击打开cad后,直接双击鼠标滚轮,保存关闭,欧耶,怎能一个爽字了得,速度大大提高!!!</p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[Extjs+Cesium+CSharp实现三维模型添加小工具]]></title>
+      <url>http://yoursite.com/2017/01/03/Extjs-Cesium-CSharp%E5%AE%9E%E7%8E%B0%E4%B8%89%E7%BB%B4%E6%A8%A1%E5%9E%8B%E6%B7%BB%E5%8A%A0%E5%B0%8F%E5%B7%A5%E5%85%B7/</url>
+      <content type="html"><![CDATA[<p>自从上次批量导出gltf模型后,需求便随之而来,就是在线添加模型,并且能够更改模型的参数,比如大小,位置等等,效仿的是某图的客户端添加二维模型.前端使用的是Extjs4.2,jQuery和三维引擎cesium,后端asp.net mvc.<br><a id="more"></a></p>
+<h1 id="前端"><a href="#前端" class="headerlink" title="前端"></a>前端</h1><h2 id="window显示框"><a href="#window显示框" class="headerlink" title="window显示框"></a>window显示框</h2><pre><code>function addModel() {
+if (Ext.getCmp(&apos;modelPanel&apos;) !== null) {
+    Ext.getCmp(&apos;modelPanel&apos;).destroy();
+}
+var modelWindow = Ext.create(&apos;Ext.window.Window&apos;, {
+    title: &apos;添加模型&apos;,
+    width: 820,
+    height: 520,
+    renderTo: Ext.getBody(),
+    plain: true,
+    collapsible: true, //是否可以折叠
+    closable: true,
+    layout: &apos;border&apos;,
+    items: [{
+        region: &apos;west&apos;,
+        xtype: &apos;treepanel&apos;,
+        title: &apos;模型分类&apos;,
+        width: &apos;15%&apos;,
+        store: treestore,
+        rootVisible: false,
+        listeners: {
+            itemclick: function(view, record, item, index, e) {
+                var code = record.raw.code;
+                var store = loadCode(code);
+                var gridPanles = editView(store);
+                var FartherGrid = modelWindow.getComponent(&apos;gridPanel&apos;);
+                FartherGrid.removeAll();
+                //添加面板
+                if (gridPanles != null) {
+                    gridPanles = FartherGrid.add({
+                        xtype: gridPanles,
+                        closable: true
+                    });
+                    gridPanles.getStore().load();
+                }
+            }
+        }
+    }, {
+        margin: &apos;1 1 1 1&apos;,
+        region: &apos;center&apos;,
+        width: &apos;45%&apos;,
+        itemId: &apos;gridPanel&apos;,
+        autoScroll: true,
+        items: [{
+            xtype: &apos;dataview&apos;,
+            width: &apos;40%&apos;,
+            autoScroll: true,
+            itemSelector: &apos;div.thumb-wrap&apos;,
+            tpl: imageTpl,
+        }]
+    }, {
+        xtype: &apos;panel&apos;,
+        region: &apos;east&apos;,
+        itemId: &apos;box1&apos;,
+        width: &apos;40%&apos;,
+        border: false,
+        layout: &apos;fit&apos;,
+        listeners: {
+            show: function(c) {
+                pageInit3d();
+            }
+        },
+        bodyStyle: &apos;background-color:#E5E3DF;&apos;,
+        frame: false,
+        html: &apos;&lt;div id=&quot;mapPic&quot;&gt;&lt;div class=&quot;nav&quot;&gt;&apos; + &apos;&lt;div class=&quot;up&quot; id=&quot;up&quot;&gt;&lt;/div&gt;&lt;div class=&quot;right&quot; id=&quot;right&quot;&gt;&lt;/div&gt;&apos; + &apos;&lt;div class=&quot;down&quot; id=&quot;down&quot;&gt;&lt;/div&gt;&lt;div class=&quot;left&quot; id=&quot;left&quot;&gt;&lt;/div&gt;&apos; + &apos;&lt;div class=&quot;zoom&quot; id=&quot;zoom&quot;&gt;&lt;/div&gt;&lt;div class=&quot;in&quot; id=&quot;in&quot;&gt;&lt;/div&gt;&apos; + &apos;&lt;div class=&quot;out&quot; id=&quot;out&quot;&gt;&lt;/div&gt;&lt;/div&gt;&apos; + &apos;&lt;img id=&quot;view-image3d&quot; src=&quot;&quot; border=&quot;0&quot; style=&quot;cursor: url(/Images/openhand_8_8.cur), default;&quot; &gt; &lt;/div&gt;&apos;
+    }],
+    listeners: {
+        show: function(c) {
+            pageInit3d();
+        }
+    },
+    buttons: [{
+        text: &apos;确认&apos;,
+        handler: function() {
+            modelWindow.destroy();
+            showmodulemessagefn(&quot;双击点选位置添加模型&quot;);
+            $(document).bind(&quot;dblclick&quot;,
+                function(e) {
+                    var NW = new Cesium.Cartesian2(e.pageX, e.pageY);
+                    var pick1 = viewer.scene.globe.pick(viewer.camera.getPickRay(NW), viewer.scene);
+                    //将三维坐标转成地理坐标
+                    var geoPt1 = viewer.scene.globe.ellipsoid.cartesianToCartographic(pick1);
+                    var gaodu = viewer.scene.globe.getHeight(geoPt1).toFixed(5);
+                    //地理坐标转换为经纬度坐标
+                    var point1 = [geoPt1.longitude / Math.PI * 180, geoPt1.latitude / Math.PI * 180];
+                    // console.log(point1+&quot;,&quot;+gaodu);
+                    var viewModel = {
+                        jingdu: point1[0].toFixed(6),
+                        weidu: point1[1].toFixed(6),
+                        gaodu: gaodu,
+                        heng: 0,
+                        zong: 0,
+                        zzz: 0,
+                        size: 1
+                    };
+                    // Convert the viewModel members into knockout observables.
+                    Cesium.knockout.track(viewModel);
+                    createDiv = document.createElement(&quot;div&quot;);
+                    createDiv.innerHTML = htmlStr;
+                    createDiv.id = &quot;toolbar&quot;;
+                    createDiv.style.position = &quot;absolute&quot;;
+                    createDiv.style.right = &quot;5px&quot;;
+                    createDiv.style.top = &quot;38px&quot;;
+                    document.body.appendChild(createDiv);
+                    var toolbar = document.getElementById(&apos;toolbar&apos;);
+                    Cesium.knockout.applyBindings(viewModel, toolbar);
+                    var jingdu = $(&quot;#jingdu&quot;)[0].value;
+                    var weidu = $(&quot;#weidu&quot;)[0].value;
+                    var gaodu = $(&quot;#height&quot;)[0].value;
+                    var heng = $(&quot;#heng&quot;)[0].value;
+                    var zong = $(&quot;#zong&quot;)[0].value;
+                    var zzz = $(&quot;#xie&quot;)[0].value;
+                    var scale = $(&quot;#size&quot;)[0].value;
+                    var idid = uuid();
+                    var modelMatrix = Cesium.Cartesian3.fromDegrees(point1[0], point1[1], gaodu);
+                    if (typeof(entity) != &apos;undefined&apos;) { viewer.entities.remove(entity); }
+                    var entity = AddModelss(idid, modelpath, modelMatrix, heng, zong, zzz, scale);
+                    $(&quot;input&quot;).change(function() {
+                        scale = $(&quot;#size&quot;)[0].value;
+                        jingdu = $(&quot;#jingdu&quot;)[0].value;
+                        weidu = $(&quot;#weidu&quot;)[0].value;
+                        gaodu = $(&quot;#height&quot;)[0].value;
+                        heng = $(&quot;#heng&quot;)[0].value;
+                        zong = $(&quot;#zong&quot;)[0].value;
+                        zzz = $(&quot;#xie&quot;)[0].value;
+                        modelMatrix = Cesium.Cartesian3.fromDegrees(jingdu, weidu, gaodu);
+                        var orientation = Cesium.Transforms.headingPitchRollQuaternion(modelMatrix, heng, zong, zzz);
+                        entity.model.scale = scale;
+                        entity.position = modelMatrix;
+                        entity.orientation = orientation;
+                    });
+                    $(&quot;#no&quot;).click(function() {
+                        viewer.entities.remove(entity);
+                        var toolbar = document.getElementById(&apos;toolbar&apos;);
+                        toolbar.parentNode.removeChild(toolbar);
+                    });
+                    $(&quot;#yes&quot;).click(function() {
+                        Ext.Ajax.request({
+                            url: &apos;/TDGis/uploadModel&apos;,
+                            params: {
+                                x: jingdu,
+                                y: weidu,
+                                z: gaodu,
+                                heng: heng,
+                                zong: zong,
+                                xie: zzz,
+                                scale: scale,
+                                id: id,
+                                idid: idid
+                            },
+                            method: &apos;POST&apos;,
+                            timeout: 3000,
+                            success: function(response, opts) {
+                                // Ext.Msg.alert(&apos;提示&apos;, &apos;添加模型成功。&apos;);
+                                var toolbar = document.getElementById(&apos;toolbar&apos;);
+                                toolbar.parentNode.removeChild(toolbar);
+                            }
+                        });
+                    });
+                    $(this).unbind(e);
+                });
+        }
+    }, {
+        text: &apos;取消&apos;,
+        handler: function() {
+            modelWindow.destroy();
+        }
+    }]
+}).show();
+}
+</code></pre><h2 id="window中的方法"><a href="#window中的方法" class="headerlink" title="window中的方法"></a>window中的方法</h2><p>1.最左侧的tree</p>
+<pre><code>var treestore = new Ext.data.TreeStore({
+proxy: {
+    type: &apos;ajax&apos;,
+    url: &apos;/TDGis/modelType&apos;,
+    reader: &quot;json&quot;
+},
+autoLoad: true
+});
+</code></pre><p>2.单击模型树生成模型列表</p>
+<pre><code>//store
+function loadCode(code) {
+gridstore = Ext.create(&apos;Ext.data.Store&apos;, {
+    fields: [&apos;name1&apos;, &apos;thumbnailpath&apos;, &apos;gltfsize&apos;, &apos;modelpath&apos;, &apos;id&apos;],
+    proxy: {
+        type: &apos;ajax&apos;,
+        reader: &apos;json&apos;,
+        url: &quot;/TDGis/modelGrid?code=&quot; + code
+    },
+    //extraParams:{&quot;code&quot;:&quot;01&quot;},
+    autoLoad: true
+});
+return gridstore;
+}
+
+//dataview
+function editView(store) {
+var selectLineGridPanel = Ext.create(&apos;Ext.view.View&apos;, {
+    store: store,
+    tpl: imageTpl,
+    itemSelector: &apos;div.thumb-wrap&apos;, //store tpl itemSelector必选项
+    emptyText: &apos;暂无图片&apos;,
+    margin: &apos;1 1 1 1&apos;,
+    multiSelect: true,
+    height: 310,
+    autoScroll: false,
+    overItemCls: &apos;x-item-over&apos;,
+    trackOver: true,
+    listeners: {
+        itemclick: function(view, record, item, index, e) {
+            thumbnailpath = record.raw.thumbnailpath;
+            modelpath = record.raw.modelpath;
+            id = record.raw.id;
+            gltfsize = record.raw.gltfsize;
+            //动态更新只需要获取到刚才建立的box的dom的src  
+            var image = Ext.get(&apos;view-image3d&apos;);
+            image.dom.src = thumbnailpath;
+        }
+    }
+});
+return selectLineGridPanel;
+}
+);
+</code></pre><p>dataview 的tpl模板,es6语法 ``</p>
+<pre><code>var imageTpl = new Ext.XTemplate(
+&apos;&lt;tpl for=&quot;.&quot;&gt;&apos;,
+&apos;&lt;div style=&quot;float: left;margin: 4px; margin-right: 0;padding: 5px&quot; class=&quot;thumb-wrap&quot;&gt;&apos;,
+&apos;&lt;img src=&quot;{thumbnailpath}&quot; width=&quot;70&quot; height=&quot;70&quot;&gt;&apos;,
+&apos;&lt;span style=&quot;text-align: center;display: block;overflow: hidden;&quot; class=&quot;x-editable&quot;&gt;大小:{gltfsize}&lt;/span&gt;&apos;,
+&apos;&lt;/div&gt;&apos;,
+&apos;&lt;/tpl&gt;&apos;
+</code></pre><p>3.添加模型的提示框(出现三秒后消失)</p>
+<pre><code>function showmodulemessagefn(message) {
+//获取显示区域的大小
+var width = Ext.getBody().getViewSize().width;
+var trim = &apos;&amp;nbsp;&amp;nbsp;&apos;;
+//设置div中显示的文字，并渐变显示，然后三秒后渐变隐藏
+$(&quot;#showmodulemessage&quot;).html(trim + message + trim).show(300).delay(3000).hide(300);
+//获取有多少个文字，然后根据文字多少算出中间宽度，加40上因为左右各两个空格
+var messagewidth = message.length * 10 + 40;
+//设置提示框的显示位置，不平在屏幕中间，垂直在工具条下面。
+$(&quot;#showmodulemessage&quot;).css({
+    left: width / 2 - messagewidth,
+    top: 110
+});
+}
+</code></pre><p>4.动态添加div节点,用于显示调整模型信息</p>
+<pre><code>//多行字符串
+function hereDoc(f) {　
+return f.toString().replace(/^[^\/]+\/\*!?\s?/, &apos;&apos;).replace(/\*\/[^\/]+$/, &apos;&apos;);
+}
+var htmlStr = hereDoc(function() {
+/*
+&lt;table&gt;
+    &lt;tbody&gt;&lt;tr&gt;
+        &lt;td width=&quot;65px&quot;&gt;&lt;font color=&quot;white&quot;&gt;经度&lt;/font&gt;&lt;/td&gt;
+        &lt;td&gt;
+            &lt;input id=&quot;jingdu&quot; type=&quot;range&quot; min=&quot;-180&quot; max=&quot;180&quot; step=&quot;0.000001&quot;  data-bind=&quot;value: jingdu, valueUpdate: &apos;input&apos;&quot;&gt;
+            &lt;input type=&quot;text&quot; size=&quot;5&quot; data-bind=&quot;value: jingdu&quot;&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+        &lt;td&gt;&lt;font color=&quot;white&quot;&gt;纬度&lt;/font&gt;&lt;/td&gt;
+        &lt;td&gt;
+            &lt;input id=&quot;weidu&quot; type=&quot;range&quot; min=&quot;-90&quot; max=&quot;90&quot; step=&quot;0.000001&quot; data-bind=&quot;value: weidu, valueUpdate: &apos;input&apos;&quot;&gt;
+            &lt;input type=&quot;text&quot; size=&quot;5&quot; data-bind=&quot;value: weidu&quot;&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+        &lt;td&gt;&lt;font color=&quot;white&quot;&gt;高度&lt;/font&gt;&lt;/td&gt;
+        &lt;td&gt;
+            &lt;input id=&quot;height&quot; type=&quot;range&quot; min=&quot;-50&quot; max=&quot;1000&quot; step=&quot;0.01&quot; data-bind=&quot;value: gaodu, valueUpdate: &apos;input&apos;&quot;&gt;
+            &lt;input type=&quot;text&quot; size=&quot;5&quot; data-bind=&quot;value: gaodu&quot;&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+        &lt;td&gt;&lt;font color=&quot;white&quot;&gt;横向旋转&lt;font&gt;&lt;/td&gt;
+        &lt;td&gt;
+            &lt;input id=&quot;heng&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;7&quot; step=&quot;0.0001&quot; data-bind=&quot;value: heng, valueUpdate: &apos;input&apos;&quot;&gt;
+            &lt;input type=&quot;text&quot; size=&quot;5&quot; data-bind=&quot;value: heng&quot;&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+        &lt;td&gt;&lt;font color=&quot;white&quot;&gt;纵向旋转&lt;/font&gt;&lt;/td&gt;
+        &lt;td&gt;
+            &lt;input id=&quot;zong&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;7&quot; step=&quot;0.0001&quot; data-bind=&quot;value: zong, valueUpdate: &apos;input&apos;&quot;&gt;
+            &lt;input type=&quot;text&quot; size=&quot;5&quot; data-bind=&quot;value: zong&quot;&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+        &lt;td&gt;&lt;font color=&quot;white&quot;&gt;斜旋转&lt;font&gt;&lt;/td&gt;
+        &lt;td&gt;
+            &lt;input id=&quot;xie&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;7&quot; step=&quot;0.0001&quot; data-bind=&quot;value: zzz, valueUpdate: &apos;input&apos;&quot;&gt;
+            &lt;input type=&quot;text&quot; size=&quot;5&quot; data-bind=&quot;value: zzz&quot;&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+        &lt;td&gt;&lt;font color=&quot;white&quot;&gt;大小&lt;font&gt;&lt;/td&gt;
+        &lt;td&gt;
+            &lt;input id=&quot;size&quot; type=&quot;range&quot; min=&quot;0&quot; max=&quot;50&quot; step=&quot;0.0001&quot; value = &quot;5&quot; data-bind=&quot;value: size, valueUpdate: &apos;input&apos;&quot;&gt;
+            &lt;input type=&quot;text&quot; size=&quot;5&quot; value = &quot;5&quot; data-bind=&quot;value: size&quot;&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+
+        &lt;td&gt;
+            &lt;button id=&quot;yes&quot; class=&quot;cesium-button1&quot;&gt;添加&lt;/button&gt;
+        &lt;/td&gt;
+        &lt;td&gt;
+            &lt;button id=&quot;no&quot; class=&quot;cesium-button1&quot;&gt;取消&lt;/button&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+&lt;/tbody&gt;&lt;/table&gt;
+*/
+});
+</code></pre><p>5.生成唯一值</p>
+<pre><code>//生成UUID
+function uuid() {
+var s = [];
+var hexDigits = &quot;0123456789abcdef&quot;;
+for (var i = 0; i &lt; 36; i++) {
+    s[i] = hexDigits.substr(Math.floor(Math.random() * 0x10), 1);
+}
+s[14] = &quot;4&quot;; // bits 12-15 of the time_hi_and_version field to 0010
+s[19] = hexDigits.substr((s[19] &amp; 0x3) | 0x8, 1); // bits 6-7 of the clock_seq_hi_and_reserved to 01
+s[8] = s[13] = s[18] = s[23] = &quot;-&quot;;
+uuid1 = s.join(&quot;&quot;);
+return uuid1;
+}
+</code></pre><p>6.添加模型的方法</p>
+<pre><code>function AddModelss(id, modelUrl, center, zzz, yyy, xxx, scale) {
+var modelMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(center);
+// var position = Cesium.Cartesian3.fromDegrees(-123.0744619, 44.0503706); //位置  
+var heading = Cesium.Math.toRadians(zzz); //绕垂直于地心的轴旋转  摇头 
+var pitch = Cesium.Math.toRadians(yyy); //绕纬度线旋转  点头
+var roll = Cesium.Math.toRadians(xxx); //绕经度线旋转  歪头
+var orientation = Cesium.Transforms.headingPitchRollQuaternion(center, heading, pitch, roll);
+var entity = viewer.entities.add({
+    id: id,
+    position: center,
+    orientation: orientation,
+    model: {
+        uri: modelUrl,
+        scale: scale
+    }
+});
+return entity;
+}
+</code></pre><p>7.图片操作方法</p>
+<pre><code>/**  
+ * 初始化  
+ */
+function pageInit3d() {
+var image = Ext.get(&apos;view-image3d&apos;);
+if (image !== null) {
+    Ext.get(&apos;view-image3d&apos;).on({
+        &apos;mousedown&apos;: { fn: function() { this.setStyle(&apos;cursor&apos;, &apos;url(/Images/openhand_8_8.cur),default;&apos;); }, scope: image },
+        &apos;mouseup&apos;: { fn: function() { this.setStyle(&apos;cursor&apos;, &apos;url(/Images/openhand_8_8.cur),move;&apos;); }, scope: image },
+        &apos;dblclick&apos;: {
+            fn: function() {
+                zoom3d(image, true, 1.2);
+            }
+        }
+    });
+    new Ext.dd.DD(image, &apos;pic&apos;);
+    //image.center();//图片居中   
+    //获得原始尺寸   
+    image.osize = {
+        width: image.getWidth(),
+        height: image.getHeight()
+    };
+    Ext.get(&apos;up&apos;).on(&apos;click&apos;, function() { imageMove3d(&apos;up&apos;, image); }); //向上移动   
+    Ext.get(&apos;down&apos;).on(&apos;click&apos;, function() { imageMove3d(&apos;down&apos;, image); }); //向下移动   
+    Ext.get(&apos;left&apos;).on(&apos;click&apos;, function() { imageMove3d(&apos;left&apos;, image); }); //左移   
+    Ext.get(&apos;right&apos;).on(&apos;click&apos;, function() { imageMove3d(&apos;right&apos;, image); }); //右移动   
+    Ext.get(&apos;in&apos;).on(&apos;click&apos;, function() { zoom3d(image, true, 1.5); }); //放大   
+    Ext.get(&apos;out&apos;).on(&apos;click&apos;, function() { zoom3d(image, false, 1.5); }); //缩小   
+    Ext.get(&apos;zoom&apos;).on(&apos;click&apos;, function() { image.center(); }); //还原   
+}
+}
+
+/**  
+ * 图片移动  
+ */
+function imageMove3d(direction, el) {
+el.move(direction, 50, true);
+}
+
+/**  
+ *   
+ * @param el 图片对象  
+ * @param type true放大,false缩小  
+ * @param offset 量  
+ */
+function zoom3d(el, type, offset) {
+var width = el.getWidth();
+var height = el.getHeight();
+var xy = el.getXY();
+var nwidth = type ? (width * offset) : (width / offset);
+var nheight = type ? (height * offset) : (height / offset);
+var left = type ? -((nwidth - width) / 2) : ((width - nwidth) / 2);
+var top = type ? -((nheight - height) / 2) : ((height - nheight) / 2);
+el.animate({
+    from: {
+        x: xy[0],
+        y: xy[1],
+        height: height,
+        width: width,
+    },
+    to: {
+        //left: left,
+        //top: top,
+        x: xy[0] + left,
+        y: xy[1] + top,
+        height: nheight,
+        width: nwidth
+    }
+});
+}
+
+/**  
+ * 图片还原  
+*/
+function restore3d(el) {
+var size = el.osize;
+//自定义回调函数   
+function center(el, callback) {
+    el.center();
+    callback(el);
+}
+el.fadeOut({
+    callback: function() {
+        el.setSize(size.width, size.height, {
+            callback: function() {
+                center(el, function(ee) { //调用回调   
+                    ee.fadeIn();
+                });
+            }
+        });
+    }
+});
+}
+</code></pre><h1 id="后端-asp-net-mvc"><a href="#后端-asp-net-mvc" class="headerlink" title="后端(asp.net mvc)"></a>后端(asp.net mvc)</h1><p>1.模型树</p>
+<pre><code>public ActionResult modelType()
+    {
+        List&lt;modelType&gt; dataList = new List&lt;modelType&gt;();
+        gasgisEntities db = new gasgisEntities();
+        string selectsql = &quot;SELECT distinct code FROM public.t_3dmodels order by code&quot;;
+        var ssqueryss = db.Database.SqlQuery&lt;modelType&gt;(selectsql);
+        List&lt;modelType&gt; kkk = ssqueryss.ToList();
+        for (var i = 0; i &lt; kkk.Count; i++)
+        {
+            switch (kkk[i].code)
+            {
+                case &quot;01&quot;: modelType daolu = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;道路&quot;,
+                    leaf = true
+                }; dataList.Add(daolu); break;
+                case &quot;03&quot;: modelType gongchang = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;工厂&quot;,
+                    leaf = true
+                }; dataList.Add(gongchang); break;
+                case &quot;02&quot;: modelType jumin = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;居民楼&quot;,
+                    leaf = true
+                }; dataList.Add(jumin); break;
+                case &quot;04&quot;: modelType shangye = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;商业楼&quot;,
+                    leaf = true
+                }; dataList.Add(shangye); break;
+                case &quot;05&quot;: modelType weiqiang = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;围墙&quot;,
+                    leaf = true
+                }; dataList.Add(weiqiang); break;
+                case &quot;06&quot;: modelType zhengfu = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;政府&quot;,
+                    leaf = true
+                }; dataList.Add(zhengfu); break;
+                case &quot;07&quot;: modelType others = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;其他建筑&quot;,
+                    leaf = true
+                }; dataList.Add(others); break;
+                case &quot;08&quot;: modelType caoping = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;草坪&quot;,
+                    leaf = true
+                }; dataList.Add(caoping); break;
+                case &quot;09&quot;: modelType huachi = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;花池&quot;,
+                    leaf = true
+                }; dataList.Add(huachi); break;
+                case &quot;10&quot;: modelType lvhuadai = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;绿化带&quot;,
+                    leaf = true
+                }; dataList.Add(lvhuadai); break;
+                case &quot;11&quot;: modelType shu = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;树&quot;,
+                    leaf = true
+                }; dataList.Add(shu); break;
+                case &quot;12&quot;: modelType qita = new modelType
+                {
+                    code = kkk[i].code,
+                    text = &quot;其他设施&quot;,
+                    leaf = true
+                }; dataList.Add(qita); break;
+            }
+        }
+        JsonResult result = new JsonResult();
+        result.Data = dataList;
+        result.JsonRequestBehavior = JsonRequestBehavior.AllowGet;
+        return result;
+    }
+</code></pre><p>2.模型列表</p>
+<pre><code>public ActionResult modelGrid(string code )
+    {
+        gasgisEntities db = new gasgisEntities();
+        string selectsql = &quot;&quot;;
+        if (code == null || code == &quot;&quot;)
+        {
+            selectsql = &quot;SELECT id,name1,modelpath,thumbnailpath,gltfsize FROM public.t_3dmodels order by order1&quot;;
+        }
+        else
+        {
+            selectsql = &quot;SELECT id,name1,modelpath,thumbnailpath,gltfsize FROM public.t_3dmodels where code =&apos;&quot; + code + &quot;&apos; order by order1&quot;;
+        }
+        var ssqueryss = db.Database.SqlQuery&lt;modelGrid&gt;(selectsql);
+        List&lt;modelGrid&gt; kkk = ssqueryss.ToList();
+        JsonResult result = new JsonResult();
+        result.Data = kkk;
+        result.JsonRequestBehavior = JsonRequestBehavior.AllowGet;//必选允许get请求
+        return result;
+    }
+</code></pre><p>3.上传模型</p>
+<pre><code>public string uploadModel(string idid, string id, decimal x, decimal y, decimal z, string heng, string zong, string xie, string scale)
+    {
+        gasgisEntities db = new gasgisEntities();
+        string ins = &quot;insert into public.t_3dgismodels (idid,id,x,y,z,heng,zong,xie,scale) values (&apos;&quot; + idid + &quot;&apos;,&apos;&quot; + id + &quot;&apos;,&quot; + x + &quot;,&quot; + y + &quot;,&quot; + z + &quot;,&apos;&quot; + heng + &quot;&apos;,&apos;&quot; + zong + &quot;&apos;,&apos;&quot; + xie + &quot;&apos;,&apos;&quot; + scale + &quot;&apos;)&quot;; ;
+        db.Database.ExecuteSqlCommand(ins);
+        modelInd(); 
+        return &quot;ok&quot;;
+    }
+    生成索引,用于动态加载的剔除模型,加快速度
+    public void modelInd()
+    {
+        gasgisEntities saveSystemCodeDB = new gasgisEntities();
+        string insql = &quot;UPDATE public.t_3dgismodels SET ind=&apos;x:&apos;|| CAST(TRUNC(x,4) as varchar) || &apos;,&apos; || &apos;y:&apos; || CAST(TRUNC(y,4) as varchar) ;&quot;;
+        saveSystemCodeDB.Database.ExecuteSqlCommand(insql);
+        //return &quot;ok&quot;;
+    }
+</code></pre><p>数据库使用的是postgisgreSQL,后台使用的asp.net提供数据,前端使用了jQuery,Extjs的各种信息展示,三维cesium引擎,一切都是开源免费的产品,这样一个功能,很好的展示了从后台到前端是如何工作的,也是入职以来的第一个实现的功能,虽然小,但是很有意义.</p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[AutoCAD DotNET二次开发,读取excel画简单的图形]]></title>
+      <url>http://yoursite.com/2016/12/10/AutoCAD-DotNET%E4%BA%8C%E6%AC%A1%E5%BC%80%E5%8F%91-%E8%AF%BB%E5%8F%96excel%E7%94%BB%E7%AE%80%E5%8D%95%E7%9A%84%E5%9B%BE%E5%BD%A2/</url>
+      <content type="html"><![CDATA[<p>继上一篇AutoCAD开发环境搭建完毕之后,现实现一个避免手动画图,减少工作量,局限,暂时只能画一些简单的图形,还要深入挖掘.<br>需要引入的命名空间:</p>
+<pre><code>using System.Threading.Tasks;
+using Autodesk.AutoCAD.EditorInput;
+using Autodesk.AutoCAD.ApplicationServices;
+using Autodesk.AutoCAD.Runtime;
+using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.Geometry;
+using System.Data.OleDb;
+using System.Data;
+using Autodesk.AutoCAD.Colors;
+</code></pre><a id="more"></a>
+<pre><code>// 获取当前文档及数据库
+
+        Document acDoc = Application.DocumentManager.MdiActiveDocument;
+        Database acCurDb = acDoc.Database;
+        string filenameurl = &quot;excel表格url&quot;;
+        string strConn = &quot;Provider=Microsoft.Ace.OleDb.12.0;&quot; + &quot;data source=&quot; + filenameurl + &quot;;Extended Properties=&apos;Excel 12.0; HDR=NO; IMEX=1&apos;&quot;;
+        OleDbConnection conn = new OleDbConnection(strConn);
+        System.Threading.Thread.Sleep(500);//为什么sleep一会儿,有时这里会报错,睡一会就好了,也不知道为什么
+        conn.Open();
+        string strExcel = &quot;&quot;;
+        OleDbDataAdapter myCommand = null;
+        DataSet ds = null;
+        // 得到包含数据架构的数据表
+        System.Data.DataTable dt = conn.GetOleDbSchemaTable(OleDbSchemaGuid.Tables, null);
+        if (dt == null)
+        {
+            return ;
+        }else
+        {
+            String[] Sheets = new String[dt.Rows.Count];
+            // 添加工作表名称到字符串数组
+            foreach (DataRow row in dt.Rows)
+            {
+                string strSheetTableName = row[&quot;TABLE_NAME&quot;].ToString();
+                if (strSheetTableName == &quot;sheet_NAME$&quot;)
+                {
+                    //过滤无效SheetName
+                    if (strSheetTableName.Contains(&quot;$&quot;) &amp;&amp; strSheetTableName.Replace(&quot;&apos;&quot;, &quot;&quot;).EndsWith(&quot;$&quot;))
+                    {
+                        strExcel = &quot;select * from [&quot; + strSheetTableName + &quot;]&quot;;
+                        myCommand = new OleDbDataAdapter(strExcel, conn);
+                        ds = new DataSet();
+                        myCommand.Fill(ds, &quot;table1&quot;);
+                        string name, x, y, type;
+                        try
+                        {//表格数据
+                            name = ds.Tables[0].Rows[0][0].ToString().Trim();
+                            x = ds.Tables[0].Rows[0][1].ToString().Trim();
+                            y = ds.Tables[0].Rows[0][2].ToString().Trim();
+                            type = ds.Tables[0].Rows[0][3].ToString().Trim();
+                        }
+                        catch (System.Exception e)
+                        {
+                            e.ToString();
+                        }
+                        DataRowCollection drc = ds.Tables[0].Rows;
+                        // 启动事务
+                        using (Transaction acTrans = acCurDb.TransactionManager.StartTransaction())
+                        {
+                            // 为图层定义颜色数组
+                            Color[] acColors = new Color[2];
+                            acColors[0] = Color.FromColorIndex(ColorMethod.ByAci, 1);
+                            acColors[1] = Color.FromRgb(23, 54, 232);//rgb
+                        for (var i = 1; i &lt; drc.Count; i++)
+                        {
+                            string name1 = drc[i][0].ToString().Trim();
+                            double x1 = double.Parse(drc[i][1].ToString().Trim());
+                            double y1 = double.Parse(drc[i][2].ToString().Trim());
+                            string type1 = drc[i][3].ToString().Trim();
+                                // 以读模式打开 Block 表
+                                BlockTable acBlkTbl;
+                                acBlkTbl = acTrans.GetObject(acCurDb.BlockTableId, OpenMode.ForRead) as BlockTable;
+                                // 以写模式打开 Block 表记录 Model 空间
+                                BlockTableRecord acBlkTblRec;
+                                acBlkTblRec = acTrans.GetObject(acBlkTbl[BlockTableRecord.ModelSpace],
+                                OpenMode.ForWrite) as BlockTableRecord;
+                                //绘圆
+                                Circle acCirc = new Circle();
+                                acCirc.Center = new Point3d(x1, y1, 0);
+                                acCirc.Radius = 0.0001;
+                                acCirc.ColorIndex = 4;
+                                acCirc.Color = acColors[1];
+                                // 创建一个单行文字对象
+                                DBText acText = new DBText();
+                                acText.Position = new Point3d(x1, y1, 0);
+                                acText.Height = 0.0001;
+                                acText.TextString = name1;
+                                acText.Color = acColors[0];
+                                // 添加到模型空间
+                                acBlkTblRec.AppendEntity(acCirc);
+                                acBlkTblRec.AppendEntity(acText);
+                                acTrans.AddNewlyCreatedDBObject(acText, true);
+                                acTrans.AddNewlyCreatedDBObject(acCirc, true);
+                            }
+                        // 保存修改，关闭事务
+                        acTrans.Commit();
+                        }
+                    string strDWGName = acDoc.Name;
+                    object obj = Application.GetSystemVariable(&quot;DWGTITLED&quot;);
+                    //图形命名了吗？ 0-没呢
+                    if (System.Convert.ToInt16(obj) == 0)
+                    {
+                        // 如果图形使用了默认名 (Drawing1、 Drawing2 等)，
+                        // 就提供一个新文件名
+                        strDWGName = &quot;d:\\MyDrawing.dwg&quot;;
+                    }
+                    // 保存图形
+                    acDoc.Database.SaveAs(strDWGName, true, DwgVersion.Current, acDoc.Database.SecurityParameters);
+                }
+            }
+        }
+    }
+}
+</code></pre>]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[关于cesium用到的一些方法]]></title>
+      <url>http://yoursite.com/2016/11/28/%E5%85%B3%E4%BA%8Ecesium%E7%94%A8%E5%88%B0%E7%9A%84%E4%B8%80%E4%BA%9B%E6%96%B9%E6%B3%95/</url>
+      <content type="html"><![CDATA[<p>在学习cesium时,除了看官方文档外,网上还有很多关于cesium的教程,但也都是基于官方文档的,比如:</p>
+<ol>
+<li><a href="http://blog.sina.com.cn/s/blog_d1000bfb0102wmtt.html" target="_blank" rel="external">三维引擎cesium学习经验</a></li>
+<li><a href="http://blog.csdn.net/u013929284/article/category/6543215" target="_blank" rel="external">Super洛伽的博客</a></li>
+<li><p>这系列很不错,有原理篇,也有应用篇<a href="http://www.cnblogs.com/fuckgiser/p/5706842.html" target="_blank" rel="external">法克鸡丝</a></p>
+<a id="more"></a>
+<p> 有了基础教程,就要实际应用起来.下面就是用到的渲染官网信息的方法.</p>
+<p> var PipeLine = function() {<br> //私有成员，存储管道、管件等三维对象</p>
+<pre><code>this._primitives = new Cesium.PrimitiveCollection();
+</code></pre><p> };<br> //下面声明一个属性，返回私有成员_primitives。该函数需要较新版本浏览器支持<br> Object.defineProperties(PipeLine.prototype, {</p>
+<pre><code>Primitives: {
+    get: function() {
+        return this._primitives;
+    }
+}
+</code></pre><p> });</p>
+</li>
+</ol>
+<p>添加gltf模型(主要是各种类型的管点):</p>
+<pre><code>PipeLine.prototype.AddModel = function(pointId, modelUrl, centerPoint, scale) {
+var modelMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(centerPoint);
+//加入模型列表中
+var model = this._primitives.add(Cesium.Model.fromGltf({
+    id: pointId,
+    //管点id，用于点选
+    url: modelUrl,
+    modelMatrix: modelMatrix,
+    scale: scale
+}));
+};
+</code></pre><p>添加管道模型:</p>
+<pre><code>    function computeCircle(radius) {
+    var positions = [];
+    for (var i = 0; i &lt; 360; i++) {
+        var radians = Cesium.Math.toRadians(i);
+        positions.push(new Cesium.Cartesian2(radius * Math.cos(radians), radius * Math.sin(radians)));
+    }
+    return positions;
+};
+
+PipeLine.prototype.addDuandian2 = function (id, x, y, z, x1, y1, z1, w1, color) {
+var polylineVolumeGeometry = new Cesium.PolylineVolumeGeometry({
+    polylinePositions: Cesium.Cartesian3.fromDegreesArrayHeights([x1, y1, z1 - w1, x, y, z - w1]),
+    shapePositions: computeCircle(w1),
+});
+var polylineInstance = new Cesium.GeometryInstance({
+    //标注管线id，用于点选   
+    id: id,
+    geometry: polylineVolumeGeometry,
+    vertexFormat: Cesium.EllipsoidSurfaceAppearance.VERTEX_FORMAT,
+    attributes: {
+        color: Cesium.ColorGeometryInstanceAttribute.fromColor(color)
+    }
+});
+//加入列表中
+this._primitives.add(new Cesium.Primitive({
+    geometryInstances: [polylineInstance],
+    asynchronous: false,
+    appearance: new Cesium.PerInstanceColorAppearance({
+        translucent: false,
+        closed: true
+    })
+}));
+}
+</code></pre>]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[AutoCAD.Net二次开发 小试牛刀]]></title>
+      <url>http://yoursite.com/2016/11/18/AutoCAD-Net%E4%BA%8C%E6%AC%A1%E5%BC%80%E5%8F%91-%E5%B0%8F%E8%AF%95%E7%89%9B%E5%88%80/</url>
+      <content type="html"><![CDATA[<p>正忙着学习openlayers呢,突然之间,经理说给我讲一下有关CAD.NET二次开发的东西,嗖嗖嗖的给我传来一个小项目,叫AutCad(我天,可能是由于我有强迫症的原因吧,缺个o好不舒服啊),一顿乱叨逼,天花乱坠的,把我搞得一脸懵逼,过后一想,就是vs使用AutoCAD API来开发,通过程序实现了cad制图.<br><a id="more"></a><br>然而,出现了一个问题,不能实现对添加的字体改变大小和样式,这不就叽叽了吗?后来我就鼓捣鼓捣,结果还真实现了,很兴奋也很激动,也许这就是我编程的目的吧O(∩_∩)O哈哈~<br>我的开发环境:Visual Studio 2013和AutoCAD 2014.这两款工具安装都很简单,一直下一步即可,当然AutoCAD是需要注册使用的,注册机网上一搜一大把,也不难.<br>重要的来了~</p>
+<ol>
+<li>新建一个Class Library项目.<br><img src="../../../../imgs/first.jpg" alt="看"></li>
+<li>添加所需的引用.<strong>引用都在AutoCAD的安装目录下</strong> 并将其属性复制本地改为FALSE.<br><img src="../../../../imgs/second.jpg" alt="不"><br>我们可以看看引用的文件是干什么的.<br><img src="../../../../imgs/third.jpg" alt="道"><br>在对象浏览器中查看.<br><img src="../../../../imgs/forth.jpg" alt="我"></li>
+<li><p>引入所需的命名空间<br> using Autodesk.AutoCAD.EditorInput;<br> using Autodesk.AutoCAD.ApplicationServices;<br> using Autodesk.AutoCAD.Runtime;<br> using Autodesk.AutoCAD.DatabaseServices;<br> using Autodesk.AutoCAD.Geometry;<br> using Autodesk.AutoCAD.Colors;</p>
+</li>
+<li><p>添加一个方法<br> [CommandMethod(“HelloWorld”)]</p>
+<pre><code>public void HelloWorld()
+{
+    Editor ed = Application.DocumentManager.MdiActiveDocument.Editor;
+    ed.WriteMessage(&quot;HelloWorld CAD！&quot;);
+}
+</code></pre></li>
+<li>右键项目,注意目标框架需要4.0及其以上版本,并将调试改为启动外部应用<br><img src="../../../../imgs/tiaoshi.jpg" alt="了"></li>
+<li>编译并将启动项目,会打开AutoCAD,在命令行输入netload,加载你新建的类库dll文件,会有一个安全提醒,别管他,在命令行输入HelloWorld,也就是你的项目里的方法名,在CAD的命令行就会出现 <strong>HelloWorld CAD！</strong> ,就是这么神奇!<br>注意坑:<br><strong>两个工具的版本一定要对应好</strong><br><strong>两个工具的版本一定要对应好</strong><br><strong>两个工具的版本一定要对应好</strong><br><a href="http://blog.csdn.net/tytmty/article/details/37754449" target="_blank" rel="external">可以看看这里,虽然有点老</a><br>英语好的当然是得看官方给的文档了,<a href="http://help.autodesk.com/view/ACD/2015/ENU/?guid=GUID-4E1AAFA9-740E-4097-800C-CAED09CDFF12" target="_blank" rel="external">这里也不错</a></li>
+</ol>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[openlayers2初学 入门教程]]></title>
+      <url>http://yoursite.com/2016/11/16/openlayers2%E5%88%9D%E5%AD%A6-%E5%85%A5%E9%97%A8%E6%95%99%E7%A8%8B/</url>
+      <content type="html"><![CDATA[<p>一直以来都在使用<a href="http://cesiumjs.org" target="_blank" rel="external">cesium</a>这个三维引擎,完成了三维模型添加工具,本来想使用官方的3Dtiles技术加载模型,但官方说这种技术还不成熟加载了1亿多模型还不成熟,我感觉这种核心技术应该不会开源)所以就只能动态加载和剔除模型,效果也还算不错.现在呢闲了下来,就想学习一下openlayers,因为公司的二维地图使用的就是这个,然而是<a href="http://openlayers.org/two/" target="_blank" rel="external">openlayers2</a>,现在已经升级到<a href="http://openlayers.org/" target="_blank" rel="external">ol3</a>了,重新进行了架构,依我的性格肯定会使用3的,然而公司就是不更新,所以只好学习2(有时间一定会搞搞3的),现记录一下学习.代码地址<a href="https://github.com/ChaosSoong/Openlayers" target="_blank" rel="external">github</a><br><a id="more"></a></p>
+<p>##概述<br>和cesium一样,OpenLayers是一个开源的js框架，用于在您的浏览器中实现地图浏览的效果和基本的zoom，pan等功能。OpenLayers支持的地图来源包括了WMS，GoogleMap，KaMap，MSVirtualEarth等等，您也可以用简单的图片作为源，在这一方面OPenLayers提供了 非常多的选择。</p>
+<p>##安装<br>首先需要下载需要的文件<a href="http://openlayers.org/two/" target="_blank" rel="external">官方地址</a>,(也可以在我的git仓库下载)下载压缩包,点击解压.<em>openlayers.js文件,img目录和theme目录一定要在同一目录下</em></p>
+<p>##Hello openlayers<br>秉着所有的入门教程都从hello world开始,咱也不例外.推荐一款编辑器sublime text,当然不是免费的,但我大天朝什么黑科技没有,就是不差注册码之类的.</p>
+<ol>
+<li><p>新建index.html,引入脚本</p>
+ <script type="text/javascript" src="你自己的目录/OpenLayers.js"></script>
+</li>
+<li><p>在body中，创建一个div来给我们的openlayers使用</p>
+ <div id="map" style="width: 100%;height: 100%;">
+
+</div></li>
+</ol>
+<p>3.对body标签,绑定onload事件,初始化地图.<br>    <body onload="init()"><br>在脚本中编写init方法:</body></p>
+<pre><code>function init() {
+   var map;
+   var lon =120;
+   var lat = 39;
+   var zoom = 6;
+    map = new OpenLayers.Map(&apos;map&apos;,{});
+    //创建叠加图层
+    var new_wms = new OpenLayers.Layer.WMS(
+            &apos;New OpenLayers WMS&apos;,
+            &apos;http://vmap0.tiles.osgeo.org/wms/vmap0&apos;,
+            {
+                layers: &quot;clabel,ctylabel,statelabel&quot;, transparent: true
+            },
+            {
+                //visibility:false,
+                opacity: 1
+            }
+    );
+    //创建基底图层
+    var wms = new OpenLayers.Layer.WMS(
+            &apos;OpenLayers WMS&apos;,
+            &apos;http://vmap0.tiles.osgeo.org/wms/vmap0&apos;,
+            {
+                layers: &quot;basic&quot;
+            },
+            {
+                isBaseLayer: true
+            }
+    );
+
+    var wms_state_lines = new OpenLayers.Layer.WMS(
+              &quot;State Line Layer&quot;,
+              &quot;http://labs.metacarta.com/wms/vmap0&quot;,
+              { layers: &quot;stateboundary&quot;, transparent: true },
+              { displayInLayerSwitcher: false, minScale: 13841995.078125 }
+                  );
+    //创建depthcontour图层
+    //设置opacity:.8
+    var wms_water_depth = new OpenLayers.Layer.WMS(
+               &quot;Water Depth&quot;,
+               &quot;http://labs.metacarta.com/wms/vmap0&quot;,
+               {
+                   layers: &quot;depthcontour&quot;, transparent: true
+               },
+               { opacity: .8 }
+               );
+    //创建一些road图层,包括一级公路、二级公路和铁路
+    //设置options的transitionEffect: &quot;resize&quot;，使图层放大或缩小时产生调整大小的动画效果
+      var wms_roads = new OpenLayers.Layer.WMS(
+               &quot;Roads&quot;,
+                &quot;http://labs.metacarta.com/wms/vmap0&quot;,
+                 {
+                    layers: &quot;priroad,secroad,rail&quot;, transparent: true
+                  },
+                  {
+                      transitionEffect: &quot;resize&quot;
+                  }
+                  );
+    map.addLayers([wms, new_wms, wms_state_lines, wms_water_depth);
+    //设置地图的中心位置
+    map.setCenter(new OpenLayers.LonLat(lon, lat), zoom);
+    //添加Switcher Control
+    map.addControl(new OpenLayers.Control.LayerSwitcher());
+    if (!map.getCenter()) {
+        map.zoomToMaxExtent();
+    }
+}
+</code></pre><p>效果图:<br><img src="../../../../imgs/ol2.jpg" alt="openlayers2"></p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[CSharp读取Excel表格]]></title>
+      <url>http://yoursite.com/2016/10/14/CSharp%E8%AF%BB%E5%8F%96Excel%E8%A1%A8%E6%A0%BC/</url>
+      <content type="html"><![CDATA[<p>前两天把dae批量转换为gltf后,需要新建三维模型表,该表一共八个字段,共有100多条记录,所以手动导入数据库甚是麻烦,而且主键ID要唯一,就想到使用GUID类,模型路径和缩略图都是长字符串,所以就 先存到Excel表格里,再获取表格里内容,插入到数据库中.代码见下(有注释哦)<br><a id="more"></a><br>        public string GetExcel()<br>            {<br>            gasgisEntities db = new gasgisEntities();<br>            string createsql = “CREATE TABLE public.t_3DModels(ID character varying(32) NOT NULL,code character varying(20),order1 character varying(20),name1 character varying(32),modelPath character varying(40),thumbnailpath character varying(40),remark character varying(32),gltfSize int,CONSTRAINT ‘t_3DModels_pkey’ PRIMARY KEY (ID))”;<br>            db.Database.ExecuteSqlCommand(createsql);//创建三维表<br>            HttpPostedFileBase systembackground = Request.Files[“systembackground”];<br>            string newname = Request[“txtname”]; //获取重命名<br>            string filename = “”;<br>            string filenames = DateTime.Now.ToString(“yyyyMMddHHmmss”) + “.xlsx”;<br>            string path = “”;<br>            foreach (string upload in Request.Files)<br>            {<br>                path = AppDomain.CurrentDomain.BaseDirectory + “uploads/“;<br>                filename = Path.GetFileName(Request.Files[upload].FileName);<br>                Request.Files[upload].SaveAs(Path.Combine(path, filenames));//保存文件<br>            }<br>            string filenameurl = Server.MapPath(“/“) + “uploads\“ + filenames;<br>            string strConn = “Provider=Microsoft.Ace.OleDb.12.0;” + “data source=” + filenameurl + “;Extended Properties=’Excel 12.0; HDR=NO; IMEX=1’”;<br>            OleDbConnection conn = new OleDbConnection(strConn);<br>            conn.Open();<br>            string strExcel = “”;<br>            OleDbDataAdapter myCommand = null;<br>            DataSet ds = null;<br>            string[] names = filename.Split(‘.’);<br>            // 得到包含数据架构的数据表<br>            System.Data.DataTable dt = conn.GetOleDbSchemaTable(OleDbSchemaGuid.Tables, null);<br>            if (dt == null)<br>            {<br>                return null;<br>            }<br>            else<br>            {<br>                String[] Sheets = new String[dt.Rows.Count];<br>                // 添加工作表名称到字符串数组<br>                foreach (DataRow row in dt.Rows)<br>                {<br>                    string strSheetTableName = row[“TABLE_NAME”].ToString();<br>                    //过滤无效SheetName<br>                    if (strSheetTableName.Contains(“$”) &amp;&amp; strSheetTableName.Replace(“‘“, “”).EndsWith(“$”))<br>                    {<br>                        strExcel = “select * from [“ + strSheetTableName + “]”;<br>                        myCommand = new OleDbDataAdapter(strExcel, conn);<br>                        ds = new DataSet();<br>                        myCommand.Fill(ds, “table1”);<br>                        string ID, code, order, name, modelPath, thumbnailpath, remark, gltfsize;<br>                        try<br>                        {<br>                            ID = ds.Tables[0].Rows[0][0].ToString().Trim();<br>                            code = ds.Tables[0].Rows[0][1].ToString().Trim();<br>                            order = ds.Tables[0].Rows[0][2].ToString().Trim();<br>                            name = ds.Tables[0].Rows[0][3].ToString().Trim();<br>                            modelPath = ds.Tables[0].Rows[0][4].ToString().Trim();<br>                            thumbnailpath = ds.Tables[0].Rows[0][5].ToString().Trim();<br>                            remark = ds.Tables[0].Rows[0][6].ToString().Trim();<br>                            gltfsize = ds.Tables[0].Rows[0][7].ToString().Trim();<br>                        }<br>                        catch (Exception e)<br>                        {<br>                            e.ToString();<br>                        }<br>                        DataRowCollection drc = ds.Tables[0].Rows;<br>                        //开始读取数据<br>                        for (var i = 1; i &lt; drc.Count; i++)<br>                        {<br>                            string ID1 = Guid.NewGuid().ToString(“N”);<br>                            string code1 = drc[i][1].ToString().Trim();<br>                            string order1 = drc[i][2].ToString().Trim();<br>                            string name1 = drc[i][3].ToString().Trim();<br>                            string modelPath1 = drc[i][4].ToString().Trim();<br>                            string thumbnailpath1 = drc[i][5].ToString().Trim();<br>                            string remark1 = drc[i][6].ToString().Trim();<br>                            string gltfsize1 = drc[i][7].ToString().Trim();<br>                            string insql = “insert into public.t_3dmodels (ID,code,order1,name1,modelPath,thumbnailpath,remark,gltfsize) values (‘“ + ID1 + “‘,’” + code1 + “‘,’” + order1 + “‘,’” + name1 + “‘,’” + modelPath1 + “‘,’” + thumbnailpath1 + “‘,’” + remark1 + “‘,’” + gltfsize1 + “‘)”;<br>                            db.Database.ExecuteSqlCommand(insql);<br>                        }<br>                    }<br>                }<br>                return “ok”;<br>            }<br>        }</p>
+<p>说说遇到的坑:</p>
+<ol>
+<li>表格的第一行是字段名,应该从第二行开始插入 所以从<strong>i=1</strong>开始</li>
+<li>由于模型路径过长,超过了32,所以会报错,致使一条数据也插入不进去</li>
+</ol>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[Cesium 键盘绑定平移旋转视角事件]]></title>
+      <url>http://yoursite.com/2016/09/29/Cesium-%E9%94%AE%E7%9B%98%E7%BB%91%E5%AE%9A%E5%B9%B3%E7%A7%BB%E6%97%8B%E8%BD%AC%E8%A7%86%E8%A7%92%E4%BA%8B%E4%BB%B6/</url>
+      <content type="html"><![CDATA[<p>在使用cesium进行三维显示的时候,可能官方还不够完善,鼠标平移,旋转事件不稳定,经常会有所偏差,甚至飞出地球,所以就绑定键盘进行操作,参考官方<a href="http://cesiumjs.org/tutorials/Camera-Tutorial/" target="_blank" rel="external">Camera-Tutorial</a>和文档<a href="http://cesiumjs.org/refdoc.html" target="_blank" rel="external">Camera</a><br><a id="more"></a><br>直接上代码,复制贴贴即可使用</p>
+<pre><code>var canvas = viewer.canvas;
+canvas.setAttribute(&apos;tabindex&apos;, &apos;0&apos;); 
+canvas.onclick = function() {
+canvas.focus();
+};
+var ellipsoid = scene.globe.ellipsoid;
+
+var startMousePosition;
+var mousePosition;
+var flags = {
+looking : false,
+moveForward : false,
+moveBackward : false,
+moveUp : false,
+moveDown : false,
+moveLeft : false,
+moveRight : false,
+rotateDown : false,
+rotateRight: false,
+rotateLeft :false,
+rotateUp:false,
+rotateForward:false,
+rotateBackward:false
+};
+var handler = new Cesium.ScreenSpaceEventHandler(canvas);
+</code></pre><p><strong>这代码应该容易理解吧</strong></p>
+<pre><code>function getFlagForKeyCode(keyCode) {
+switch (keyCode) {
+case &apos;W&apos;.charCodeAt(0):
+    return &apos;moveForward&apos;;
+case &apos;S&apos;.charCodeAt(0):
+    return &apos;moveBackward&apos;;
+case &apos;Q&apos;.charCodeAt(0):
+    return &apos;moveUp&apos;;
+case &apos;E&apos;.charCodeAt(0):
+    return &apos;moveDown&apos;;
+case &apos;D&apos;.charCodeAt(0):
+    return &apos;moveRight&apos;;
+case &apos;A&apos;.charCodeAt(0):
+    return &apos;moveLeft&apos;;
+case &apos;K&apos;.charCodeAt(0):
+    return &apos;rotateDown&apos;;
+case &apos;I&apos;.charCodeAt(0):
+    return &apos;rotateUp&apos;;
+case &apos;J&apos;.charCodeAt(0):
+    return &apos;rotateLeft&apos;;
+case &apos;L&apos;.charCodeAt(0):
+    return &apos;rotateRight&apos;;
+case &apos;O&apos;.charCodeAt(0):
+    return &apos;rotateForward&apos;;
+case &apos;U&apos;.charCodeAt(0):
+    return &apos;rotateBackward&apos;;
+default:
+    return undefined;
+}
+}
+</code></pre><p><strong>添加事件监听</strong></p>
+<pre><code>document.addEventListener(&apos;keydown&apos;, function(e) {
+var flagName = getFlagForKeyCode(e.keyCode);
+if (typeof flagName !== &apos;undefined&apos;) {
+    flags[flagName] = true;
+}
+}, false);
+
+document.addEventListener(&apos;keyup&apos;, function(e) {
+var flagName = getFlagForKeyCode(e.keyCode);
+if (typeof flagName !== &apos;undefined&apos;) {
+    flags[flagName] = false;
+}
+}, false);
+
+viewer.clock.onTick.addEventListener(function(clock) {
+var camera = viewer.camera;
+
+if (flags.looking) {
+    var width = canvas.clientWidth;
+    var height = canvas.clientHeight;
+    var x = (mousePosition.x - startMousePosition.x) / width;
+    var y = -(mousePosition.y - startMousePosition.y) / height;
+    var lookFactor = 0.05;
+    camera.lookRight(x * lookFactor);
+    camera.lookUp(y * lookFactor);
+}
+
+var cameraHeight = ellipsoid.cartesianToCartographic(camera.position).height;
+var moveRate = cameraHeight / 100.0;
+var rotateRate=1.5*Math.PI/60.0;
+</code></pre><p><strong>监听键盘,调用平移旋转方法</strong></p>
+<pre><code>if (flags.moveForward) {
+    camera.moveForward(moveRate);
+}
+if (flags.moveBackward) {
+    camera.moveBackward(moveRate);
+}
+if (flags.moveUp) {
+    camera.moveUp(moveRate);
+}
+if (flags.moveDown) {
+    camera.moveDown(moveRate);
+}
+if (flags.moveLeft) {
+    camera.moveLeft(moveRate);
+}
+if (flags.moveRight) {
+    camera.moveRight(moveRate);
+}
+if (flags.rotateRight) {
+    camera.lookRight();
+}
+if (flags.rotateDown) {
+    camera.lookDown();
+}
+if (flags.rotateUp) {
+    camera.lookUp();
+}
+if (flags.rotateLeft) {
+    camera.lookLeft();
+}
+if (flags.rotateForward) {
+    camera.look(camera.direction,rotateRate);
+}
+if (flags.rotateBackward) {
+    camera.look(camera.direction,-rotateRate);
+}
+});
+</code></pre>]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[http协议之状态码小议]]></title>
+      <url>http://yoursite.com/2016/09/03/http%E5%8D%8F%E8%AE%AE%E4%B9%8B%E7%8A%B6%E6%80%81%E7%A0%81%E5%B0%8F%E8%AE%AE/</url>
+      <content type="html"><![CDATA[<p>在看http状态码的时候搜索倒一篇不错的博客贴出来学习一下.<a href="http://v5browser.iteye.com/blog/1769789" target="_blank" rel="external">v5browser
+</a></p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[关于cesium的地下开挖插件的实现]]></title>
+      <url>http://yoursite.com/2016/08/27/%E5%85%B3%E4%BA%8Ecesium%E7%9A%84%E5%9C%B0%E4%B8%8B%E5%BC%80%E6%8C%96%E6%8F%92%E4%BB%B6%E7%9A%84%E5%AE%9E%E7%8E%B0/</url>
+      <content type="html"><![CDATA[<p>在使用cesium渲染三维地图的时候,由于需求,想实现地下开挖的效果,正好<a href="https://github.com/NICTA/cesium-groundpush-plugin" target="_blank" rel="external">NICTA</a>提供了此功能,简单记录一下学习成果.<br><a id="more"></a><br>cesium-groundpush-plugin一共有四个版本,最新的对应cesium1.2,其余版本为b26,b27,b28.然而现在最新的cesium为25了,并且NICTA也不再更新这个插件了,所以暂用1.2版本测试.</p>
+<h2 id="下载插件"><a href="#下载插件" class="headerlink" title="下载插件"></a>下载插件</h2><p>主要是四个js文件</p>
+<pre><code>git clone https://github.com/NICTA/cesium-groundpush-plugin.git
+</code></pre><h2 id="在html中导入js"><a href="#在html中导入js" class="headerlink" title="在html中导入js"></a>在html中导入js</h2><pre><code>&lt;script type=&quot;text/javascript&quot; src=&quot;[your path to Cesium]/Cesium.js&quot;&gt;&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;GroundPushGlobeSurfaceShaderSet.js&quot;&gt;&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;GroundPushGlobeVS.js&quot;&gt;&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;GroundPushGlobeFS.js&quot;&gt;&lt;/script&gt;
+&lt;script type=&quot;text/javascript&quot; src=&quot;GroundPush.js&quot;&gt;&lt;/script&gt;
+</code></pre><h2 id="脚本初始化"><a href="#脚本初始化" class="headerlink" title="脚本初始化"></a>脚本初始化</h2><pre><code>var options = {
+pushRectangle : new Cesium.Rectangle( 0.0, 0.0, 0.1, 0.1 ), // 挖掘区域
+pushDepth : -10000,   //挖掘深度(米)                                 
+pushSidesTint : new Cesium.Cartesian3( 0.7, 0.6, 0.5 )  // 挖掘区域的边界颜色RGB
+};
+
+var gp = new GroundPush(Cesium, options);
+</code></pre><h2 id="添加图层"><a href="#添加图层" class="headerlink" title="添加图层"></a>添加图层</h2><p>在挖掘区域可以添加另一个图层,以区别显示</p>
+<pre><code>var imageryLayers = globe.imageryLayers;
+var imageryProvider = new Cesium.TileMapServiceImageryProvider({
+url : &apos;http://cesium.agi.com/blackmarble&apos;,
+maximumLevel : 8,
+credit : &apos;Black Marble imagery courtesy NASA Earth Observatory&apos;,
+rectangle : gp.getOuterRectangle()
+});
+imageryLayers.addImageryProvider(imageryProvider);
+
+imageryLayers.get(1).showOnlyInPushedRegion = true;
+</code></pre><p>另外可以设置挖掘深度:     <code>gp.pushDepth = -20000;</code></p>
+<h2 id="cesium1-24"><a href="#cesium1-24" class="headerlink" title="cesium1.24"></a>cesium1.24</h2><p>当我想在我的项目中使用这个插件时,由于我的cesium是1.24的,有很多方法被重写,或是遗弃,比如:</p>
+<ul>
+<li><code>Rectangle.intersectWith</code>在1.5中被<code>Rectangle.intersection</code>替换</li>
+<li><code>Rectangle.isEmpty</code>方法被彻底抛弃</li>
+<li><code>Camera.viewRectangle</code>方法被<code>Camera.setView({destination: rectangle})</code>代替</li>
+<li>在添加图层时,抛弃<code>TileMapServiceImageryProvider</code>,取而代之的是<code>createTileMapServiceImageryProvider</code></li>
+</ul>
+<p>当我修改了这些方法后仍然不能使用,cesium.js报错,可能是我太菜鸟了吧,根本调试不出来,一再努力之下,仍不能解决,故放弃.</p>
+<h2 id="改变思维"><a href="#改变思维" class="headerlink" title="改变思维"></a>改变思维</h2><p> 虽然不能使用这个插件,但能不能模拟一下开挖呢,额,就这么干.<br>思路就是添加一个矩形选框,点击鼠标渲染出一个矩形,矩形内部的区域即为挖掘区域,区域内显示实体,区域外隐藏实体.</p>
+<h3 id="禁用视图"><a href="#禁用视图" class="headerlink" title="禁用视图"></a>禁用视图</h3><pre><code>scene.screenSpaceCameraController.enableRotate = false;
+scene.screenSpaceCameraController.enableTranslate = false;
+scene.screenSpaceCameraController.enableZoom = false;
+scene.screenSpaceCameraController.enableTilt = false;
+scene.screenSpaceCameraController.enableLook = false;
+</code></pre><h3 id="JQuery增加div"><a href="#JQuery增加div" class="headerlink" title="JQuery增加div"></a>JQuery增加div</h3><pre><code>var x = y = 0;
+var mousekey = false;
+$(document).bind(&quot;mousedown&quot;,
+    function(e) {
+        if (isSelect) {
+            mousekey = true;
+            //var currObj = e.originalEvent.srcElement; //这里是获取当前鼠标所在对象
+            $(&apos;body&apos;).css(&quot;cursor &quot;, &quot;crosshair&quot;).append(&apos;&lt;div id=&quot;divSelectArea&quot; style=&quot;position: absolute;background-color: #111111;&quot;&gt;&lt;/div&gt;&apos;);
+            x = e.pageX;
+            y = e.pageY;
+            $(&apos;#divSelectArea&apos;).css({
+                top: e.pageY,
+                left: e.pageX
+            }).fadeTo(12, 0.2); //点击后开始拖动并透明;
+        }
+    }).mousemove(function(e) {
+        if (mousekey) {
+            $(&apos;#divSelectArea&apos;).css({
+                top: e.pageY &gt; y ? y: e.pageY,
+                left: e.pageX &gt; x ? x: e.pageX,
+                height: Math.abs(e.pageY - y),
+                width: Math.abs(e.pageX - x)
+            }).html(e.originalEvent.srcElement.tagName);
+        }
+    }).mouseup(function() {
+        if (mousekey) {
+            var offsetTop = $(&apos;#divSelectArea&apos;).offset().top;
+            var offsetLeft = $(&apos;#divSelectArea&apos;).offset().left;
+            var offsetHeight = $(&apos;#divSelectArea&apos;).outerHeight();
+            var offsetWidth = $(&apos;#divSelectArea&apos;).outerWidth();
+            var NW = new Cesium.Cartesian2(offsetLeft, offsetTop);
+            var NE = new Cesium.Cartesian2(offsetLeft + offsetWidth, offsetTop);
+            var SE = new Cesium.Cartesian2(offsetLeft + offsetWidth, offsetTop + offsetHeight);
+            var SW = new Cesium.Cartesian2(offsetLeft, offsetTop + offsetHeight);
+            getpos(NW, NE,SE,SW);
+            x = y = mousekey = 0;
+            $(&apos;#divSelectArea&apos;).remove();
+            $(&apos;body&apos;).css(&quot;cursor &quot;, &quot;default &quot;);
+            scene.screenSpaceCameraController.enableRotate = true;
+            scene.screenSpaceCameraController.enableTranslate = true;
+            scene.screenSpaceCameraController.enableZoom = true;
+            scene.screenSpaceCameraController.enableTilt = true;
+            scene.screenSpaceCameraController.enableLook = true;
+            isSelect = false;
+        }
+    });
+</code></pre><h3 id="由div屏幕值为转换为经纬度-选取区域"><a href="#由div屏幕值为转换为经纬度-选取区域" class="headerlink" title="由div屏幕值为转换为经纬度,选取区域"></a>由div屏幕值为转换为经纬度,选取区域</h3><pre><code>function getpos(p1,p2,p3,p4) {
+    var pick1 = viewer.scene.globe.pick(viewer.camera.getPickRay(p1), viewer.scene);
+    var pick2 = viewer.scene.globe.pick(viewer.camera.getPickRay(p2), viewer.scene);
+    var pick3 = viewer.scene.globe.pick(viewer.camera.getPickRay(p3), viewer.scene);
+    var pick4 = viewer.scene.globe.pick(viewer.camera.getPickRay(p4), viewer.scene);
+    //将三维坐标转成地理坐标
+    var geoPt1 = viewer.scene.globe.ellipsoid.cartesianToCartographic(pick1);
+    var geoPt2 = viewer.scene.globe.ellipsoid.cartesianToCartographic(pick2);
+    var geoPt3 = viewer.scene.globe.ellipsoid.cartesianToCartographic(pick3);
+    var geoPt4 = viewer.scene.globe.ellipsoid.cartesianToCartographic(pick4);
+    //地理坐标转换为经纬度坐标
+    var point1 = [geoPt1.longitude / Math.PI * 180, geoPt1.latitude / Math.PI * 180];
+    var point2 = [geoPt2.longitude / Math.PI * 180, geoPt2.latitude / Math.PI * 180];
+    var point3 = [geoPt3.longitude / Math.PI * 180, geoPt3.latitude / Math.PI * 180];
+    var point4 = [geoPt4.longitude / Math.PI * 180, geoPt4.latitude / Math.PI * 180];
+    //console.log(point1 + &apos;.....&apos; + point2);
+    var NW = new Cesium.Cartesian3.fromDegrees(point1[0], point1[1], 15);
+    var NE = new Cesium.Cartesian3.fromDegrees(point2[0], point2[1], 15);
+    var SE = new Cesium.Cartesian3.fromDegrees(point3[0], point3[1], 15);
+    var SW = new Cesium.Cartesian3.fromDegrees(point4[0], point4[1], 15);
+    if(Cesium.defined(greenWall)){
+      viewer.entities.remove(greenWall);
+    }
+    if(Cesium.defined(greenredRectangle)){
+      viewer.entities.remove(greenredRectangle);
+    }
+     greenWall = viewer.entities.add({
+        wall: {
+            positions: [NW, NE, SE, SW, NW],
+            material: Cesium.Color.GREEN
+        }
+    });        
+     greenredRectangle = viewer.entities.add({
+        polygon: {
+            hierarchy: [NW, NE, SE, SW],
+            material: Cesium.Color.GREEN,
+        },
+    });
+};
+</code></pre><p>ok,大功告成,菜鸟一枚,欢迎指正.</p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[Python 面试题]]></title>
+      <url>http://yoursite.com/2016/08/20/Python-%E9%9D%A2%E8%AF%95%E9%A2%98/</url>
+      <content type="html"><![CDATA[<p>一直在学习Python,也跟着做过小的项目,一时兴起就找来一些题目做做,没想到学的还很浅显,深入一点就蒙圈了,在此记录一些有关Python的题目,随时更新.<br><a id="more"></a></p>
+<h2 id="脚本开发"><a href="#脚本开发" class="headerlink" title="脚本开发"></a>脚本开发</h2><ul>
+<li>如何在Python处理一个8G大小的文本（迭代器，with等）</li>
+<li>你用Python做过哪些好用有趣的脚本</li>
+<li>你最大的Python项目是怎么维护的，init.py 是干什么的，为什么global import 不好<h2 id="Web开发"><a href="#Web开发" class="headerlink" title="Web开发"></a>Web开发</h2></li>
+<li>喜欢/用过哪些Web框架（flask, django, tornade等）对比不同和优缺点</li>
+<li>为什么Python会有这么多的Web Framework（WSGI，Jinja2，SQLAlchemy等</li>
+<li>关于服务的部署（对于实体机，对于虚拟主机下，对于iaas，对于paas. supervisord，WSGI nginx等）</li>
+<li>你是如何搭建开发环境的（关于环境隔离：virtualenv，requirements.txt等）<h2 id="关于语法"><a href="#关于语法" class="headerlink" title="关于语法"></a>关于语法</h2></li>
+<li>你喜欢的Python语言特性</li>
+<li>with的用法和实现(enter 和 exit)</li>
+<li>generator的好处和实现（iter 和next）</li>
+<li>装饰器Decorator的用法和实现（@, func_wrapper. flask中用于注解view function定义url path 和 method，或权限管理等）</li>
+<li>有哪些special方法如何定义和用途（）</li>
+<li>list, array, tuple 的区别</li>
+<li>range和xrange的区别</li>
+<li>list compression列表推导式的用法</li>
+<li>PEP8有哪些guide，你还知道哪些PEP(255-simple generators, 318-decorators, 342-coroutines via enhanced generators, 333-WSGI等)</li>
+<li>Python 2.x 和 Python3k的区别，为什么这么大的升级和不兼容<h2 id="编程特性"><a href="#编程特性" class="headerlink" title="编程特性"></a>编程特性</h2></li>
+<li>聊聊GIL。说说它是怎么影响Python的并发的，哪些情况下可以关闭掉<br>关于pickling和marshling的注意点</li>
+<li>Python的垃圾回收是怎么做的</li>
+<li>Python哪些语言特性来实现元编程，你用元编程的应用场景</li>
+<li>函数式编程和Python中的辅助（高阶函数，functools, operator, 推导式，迭代器，itertools等）</li>
+<li>Python中的monkey patching有哪些技巧和运用<h2 id="关于工具"><a href="#关于工具" class="headerlink" title="关于工具"></a>关于工具</h2></li>
+<li>你是怎么做debugging的，开发时和线上（remote debug?</li>
+<li>你是怎么linting和profiling的</li>
+<li>你用什么IDE做开发，哪些功能用的多（如refactor，docstrings，REPL ipython等）<br><hr><br>转自<a href="http://blog.sivagao.com/2016-02/guide-python/" target="_blank" rel="external">Siva Gao博客</a></li>
+</ul>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[python scrapy install]]></title>
+      <url>http://yoursite.com/2016/08/13/python-scrapy-install/</url>
+      <content type="html"><![CDATA[<p>在学习<a href="http://www.liaoxuefeng.com/article/001432619295115c918a094d8954bd493037b03d27bf9a9000" target="_blank" rel="external">Python基础</a>时,学会了使用urllib和urllib2库进行简单的爬虫,,但有太基础,后来就找了一个<a href="http://scrapy.org/" target="_blank" rel="external">scrapy框架</a>,首先遇到的困难就是如何安装,由于官网全是英文版的,只过了四级的我,但是也强读下来<a href="http://doc.scrapy.org/en/master/intro/install.html#windows" target="_blank" rel="external">安装教程</a>,然而按照教程并没有安装成功,以下是官网提供的:</p>
+<ol>
+<li>安装完Python2.7后,配置环境变量<br> C:\Python27\;C:\Python27\Scripts\;<br> c:\python27\python.exe c:\python27\tools\scripts\win_add2path.py</li>
+<li><a href="http://sourceforge.net/projects/pywin32/" target="_blank" rel="external">安装pywin32</a>这里要适合你的系统版本(win32 或 amd64)我的机子是AMD64的</li>
+<li><a href="https://pip.pypa.io/en/latest/installing/" target="_blank" rel="external">安装pip</a>,测试是否成功:<br> pip –version</li>
+<li><p>最后使用pip包管理scrapy<br> pip install Scrapy</p>
+<a id="more"></a>
+<p>一步一步跟下来后却发现安装失败,原因提示 Microsoft Visual C++库没安装,后来百度到<a href="http://cuiqingcai.com/912.html" target="_blank" rel="external">静觅</a>提供了scrapy框架的安装配置,又按照这里的教程安装,当安装lxml时,又提示libxml2没有安装,使用以下命令:</p>
+<p> pip install libxml2</p>
+</li>
+</ol>
+<p>安装未成功,又找可执行文件安装,但是这个又只更新到Python2.6版本,依然无法使用,导致’’’ pip install Scrapy ‘’’仍无法安装成功,最后在stackoverflow中找到解决方案,直接下载相关版本的lxml的可执行文件即可.<br>所有需要的安装文件都在<a href="https://github.com/ChaosSoong/py_spider" target="_blank" rel="external">github</a>上.</p>
+<p>注:我的电脑配置:AMD64,Python2.7</p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[windows下安装python库的方法总结 ]]></title>
+      <url>http://yoursite.com/2016/08/09/windows%E4%B8%8B%E5%AE%89%E8%A3%85python%E5%BA%93%E7%9A%84%E6%96%B9%E6%B3%95%E6%80%BB%E7%BB%93/</url>
+      <content type="html"><![CDATA[<p>以前在学校就接触过Python,但也只是拿来玩玩,没做过研究,这些天有时间就接着研究研究,感觉Python的风格很好,而且库特别多,现在就记录一下安装库的方法,我的测试机子是windows64位的,Python版本2.7的.<br><a id="more"></a><br>我记得在安装Python时除了自带添加Python到PATH外,好像有一个添加pip选项,记不太清了,若果没有,概不负责,啧啧.当然你也可以自己安装pip.</p>
+<h2 id="安装Setuptools"><a href="#安装Setuptools" class="headerlink" title="安装Setuptools"></a>安装Setuptools</h2><p>从<a href="http://peak.telecommunity.com/dist/ez_setup.py" target="_blank" rel="external">官网下载Setuptools</a> 复制页面上的代码到ez_setup.py,在当前目录启用cmd,输入命令以下命令即可:</p>
+<pre><code>python ez_setup.py
+</code></pre><p>以后就可以直接在命令行进行在线安装</p>
+<pre><code>easy_install package_name //你要安装的包名
+</code></pre><p>然而好多包都不能用此法安装了,被pip渐渐替代</p>
+<h2 id="pip命令"><a href="#pip命令" class="headerlink" title="pip命令"></a>pip命令</h2><p>首先安装<a href="https://pypi.python.org/pypi/pip#downloads" target="_blank" rel="external">pip</a>下载压缩包后解压,在解压目录打开cmd命令,输入:</p>
+<pre><code>python setup.py install
+</code></pre><p>安装好之后,需要添加环境变量,然后我们就可以使用pip命令玩耍了:</p>
+<pre><code>pip list //查看安装包列表
+pip install package_name   //安装你需要的库
+</code></pre><h2 id="exe-msi"><a href="#exe-msi" class="headerlink" title="exe,msi"></a>exe,msi</h2><p>最简单的安装库的方法,直接下载双击安装,当然支持的包不多,我们的python就是这么安装的.</p>
+<h2 id="egg-whl"><a href="#egg-whl" class="headerlink" title="egg,whl"></a>egg,whl</h2><p>egg,whl包也需要setuptools的支持</p>
+<pre><code>easy_install xxxxxxx.egg  //egg包名
+pip install xxxxxxx.whl   //whl包名
+</code></pre><h2 id="推荐库"><a href="#推荐库" class="headerlink" title="推荐库"></a>推荐库</h2><ul>
+<li>图像处理的<a href="https://pypi.python.org/pypi/Pillow" target="_blank" rel="external">pillow</a></li>
+<li>解析html,xml的<a href="http://lxml.de/" target="_blank" rel="external">lxml</a>和<a href="https://www.crummy.com/software/BeautifulSoup/bs4/doc.zh/" target="_blank" rel="external">beautifusoup4</a></li>
+<li>numpy 科学计算</li>
+<li>爬虫框架<a href="http://scrapy.org/" target="_blank" rel="external">scrapy</a></li>
+<li>web框架<a href="https://www.djangoproject.com/" target="_blank" rel="external">Djang</a></li>
+<li>模板引擎<a href="http://jinja.pocoo.org/" target="_blank" rel="external">jinja2</a></li>
+<li>数据库<a href="https://pypi.python.org/pypi/MySQL-python" target="_blank" rel="external">MySQL</a></li>
+</ul>
+<p>太多太多了,以后有的学了</p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[django-html-static]]></title>
+      <url>http://yoursite.com/2016/07/16/django-1-9-static/</url>
+      <content type="html"><![CDATA[<p>在学习<a href="http://djangobook.py3k.cn/2.0/" target="_blank" rel="external">django教程</a>的时候,想要在模板中引入css,js等静态文件,鼓捣了有一天多,终于在<a href="http://stackoverflow.com/questions/15491727/include-css-and-javascript-in-my-django-template" target="_blank" rel="external">stackoverflow</a>找到教程,现开始贴代码,记录一下.</p>
+<h2 id="首先在根目录下新建一个staticfiles文件-里面存放需要的各种css-js等文件"><a href="#首先在根目录下新建一个staticfiles文件-里面存放需要的各种css-js等文件" class="headerlink" title="首先在根目录下新建一个staticfiles文件,里面存放需要的各种css,js等文件."></a>首先在根目录下新建一个staticfiles文件,里面存放需要的各种css,js等文件.</h2><h2 id="然后设置setting-py"><a href="#然后设置setting-py" class="headerlink" title="然后设置setting.py:"></a>然后设置setting.py:</h2><a id="more"></a>
+<p><pre><code><br>    PROJECT_DIR = os.path.dirname(<strong>file</strong>)<br>    MEDIA_ROOT = os.path.join(PROJECT_DIR, ‘media’)</code></pre></p>
+<pre><code>MEDIA_URL = &apos;/media/&apos;
+STATIC_ROOT = os.path.join(PROJECT_DIR, &apos;static&apos;)
+
+STATIC_URL = &apos;/static/&apos;
+
+STATICFILES_DIRS = (
+os.path.join(PROJECT_DIR, &apos;staticfiles&apos;),
+)
+</code></pre><p></p>
+<h2 id="url-py"><a href="#url-py" class="headerlink" title="url.py:"></a>url.py:</h2><p><pre><code><br>    from django.conf.urls import patterns, include, url</code></pre></p>
+<pre><code>from django.conf.urls.static import static
+
+from django.contrib.staticfiles.urls import staticfiles_urlpatterns
+
+from mysite import settings
+
+admin.autodiscover()
+
+urlpatterns = patterns(&apos;&apos;,(&apos;^$&apos;, hello),
+
+url(r&apos;^dance/$&apos;, dance),
+
+) + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+urlpatterns += staticfiles_urlpatterns()
+</code></pre><p></p>
+<h2 id="templates文件夹下的模板文件"><a href="#templates文件夹下的模板文件" class="headerlink" title="templates文件夹下的模板文件:"></a>templates文件夹下的模板文件:</h2><p><img src="../../../../imgs/django-html.png" alt="模板"></p>
+<p>新手上路,一起交流</p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[linux下mysql的学习之路]]></title>
+      <url>http://yoursite.com/2016/06/18/linux-mysql/</url>
+      <content type="html"><![CDATA[<p>由于毕业设计的需要,基于安卓的智慧云班的设计与实现,客户端采用Eclipse+adt,服务器端采用MyEclipse,数据库使用过微软的sql server和Oracle公司的oracle的Oracle,当然由于只是用来学习,不涉及商用,找来的破解版,但是对于毕业设计,电脑配置的原因,让我不得不放弃这两款数据库,光使用Eclipse和MyEclipse这俩IDE,内存都已经吃不消了,所以就接触了小巧开源的MySQL,当然是在windows下.现在<a href="https://www.shiyanlou.com/courses/running" target="_blank" rel="external">实验楼</a>发现linux下的学习教程,记录两种操作系统下的差异.<br><a id="more"></a></p>
+<h2 id="Ubuntu下安装配置MySQL"><a href="#Ubuntu下安装配置MySQL" class="headerlink" title="Ubuntu下安装配置MySQL"></a>Ubuntu下安装配置MySQL</h2><p>最简单的方法就是在线安装:</p>
+<pre><code>sudo apt-get install mysql-server     //安装MySQL服务端、核心程序
+sudo apt-get install mysql-client          //安装MySQL客户端
+</code></pre><p>在安装过程中会提示确认输入YES，设置密码（之后也可以修改）等，稍等片刻便可安装成功。</p>
+<p>安装结束后，用命令验证是否安装成功：<br>    sudo netstat -tap | grep mysql</p>
+<p>对于windows系统,MySQL安装文件分为两种，一种是msi格式的，一种是zip格式的。如果是msi格式的可以直接点击安装，按照它给出的安装提示进行安装（相信大家的英文可以看懂英文提示），一般MySQL将会安装在C:\Program Files\MySQL\MySQL Server 5.6 该目录中；zip格式是自己解压，解压缩之后其实MySQL就可以使用了，但是要进行配.</p>
+<h2 id="打开MySQL"><a href="#打开MySQL" class="headerlink" title="打开MySQL"></a>打开MySQL</h2><p>使用如下两条命令，打开MySQL服务并使用root用户登录：</p>
+<pre><code>sudo service mysql start             //打开MySQL服务
+mysql -u root                        //使用root用户登录
+</code></pre><p>windows系统,打开MySQL的话要现在服务中启用MySQL服务,这个坑了我好久( ⊙ o ⊙ )啊！</p>
+<h2 id="MySQL命令-注意分号"><a href="#MySQL命令-注意分号" class="headerlink" title="MySQL命令(注意分号)"></a>MySQL命令(注意分号)</h2><pre><code>显示数据库: show databases; 
+连接数据库: use database_name;
+显示数据表: show tables;
+退出数据库: quit   //等同于exit,无分号
+</code></pre><p>像sql server和oracle都使用的是图形化界面,突然间使用命令行,还真有点不习惯,不过感觉离计算机系统更近了,后来发现MySQL也有图形化界面.</p>
+<h2 id="over"><a href="#over" class="headerlink" title="over"></a>over</h2><p>至于sql语句,比如创建数据库,创建数据表,对数据表进行各种约束,对数据的增删改查,所有的数据库语句大同小异.语句太多,慢慢积累.</p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[cesium自学经验]]></title>
+      <url>http://yoursite.com/2016/06/17/cesium%E8%87%AA%E5%AD%A6%E7%BB%8F%E9%AA%8C/</url>
+      <content type="html"><![CDATA[<p>由于工作需要,在对比threejs和cesiumjs后,决定使用cesiumjs更合适,现开一篇cesium的学习历程,记录一下.</p>
+<h2 id="概述"><a href="#概述" class="headerlink" title="概述"></a>概述</h2><p>Cesium是一个基于JavaScript的开源框架,可用于在浏览器中绘制3D的地球,并在其上绘制地图（支持多种格式的瓦片服务）,该框架不需要任何插件支持,但是浏览器必须支持WebGL,当然最合适的当属Google chrome了,其次Firefox,至于Safari和其他的一些浏览器没有测试,没资格说.<br><a id="more"></a></p>
+<h2 id="使用"><a href="#使用" class="headerlink" title="使用"></a>使用</h2><p>首先<a href="http://cesiumjs.org/downloads.html" target="_blank" rel="external">下载cesium</a></p>
+<p><img src="../../../../imgs/cesium-content.jpg" alt="我是目录"><br>主要包括开发用的包,文档,和各种小应用示例.</p>
+<p>使用cesium,必须搭建一个本地服务器,官方使用的是node.js,<a href="http://www.runoob.com/nodejs/nodejs-tutorial.html" target="_blank" rel="external">点我node.js入门教程</a>,当然我用的是IIS,只要host我们的文件即可.</p>
+<h2 id="Hello-World"><a href="#Hello-World" class="headerlink" title="Hello World"></a>Hello World</h2><p>身为一个初学者,一切都从Hello World开始.</p>
+<ol>
+<li><p>第一步就是引入Cesium.js，他里面定义的Cesium对象有我们想要的一切</p>
+ <script src="Cesium/Cesium.js"></script>
+</li>
+<li><p>第二步，为了使用Cesium widget，我们需要引入CesiumWidget.css</p>
+<p> @import url(Cesium/Widgets/CesiumWidget/CesiumWidget.css);</p>
+</li>
+<li><p>第三步，在body中，创建一个div来给我们的Cesium widget使用</p>
+  <div id="cesiumContainer"> </div>
+</li>
+<li><p>第四步，创建一个widget的实例，收工。</p>
+<p> var cesiumWidget = new Cesium.CesiumWidget(‘cesiumContainer’);</p>
+</li>
+</ol>
+<p>当然多功能的View:</p>
+<pre><code>var viewer = new Cesium.Viewer(&apos;cesiumContainer&apos;, {});
+</code></pre><p>其中可以添加各种配置项,具体详见<a href="http://cesiumjs.org/refdoc.html" target="_blank" rel="external">这里</a></p>
+<p>如若简单的测试小例子,官方自带<a href="http://cesiumjs.org/Cesium/Apps/Sandcastle/index.html?src=Hello%20World.html&amp;label=Showcases" target="_blank" rel="external">在线版</a>左边编辑,右边展示,很强大.<br><img src="../../../../imgs/helloworld.jpg" alt="helloworld"></p>
+<h2 id="结束语"><a href="#结束语" class="headerlink" title="结束语"></a>结束语</h2><p>到此为止只是简单地入门应用,若要开发自己的应用,还要自己鼓捣<em>Documentation</em>,若果有时间,在开几篇进阶版,好了,闲暇时间打打字也挺好,敲代码去了</p>
+<p>知乎淘来的二次元壁纸一张,哈哈<br><img src="https://pic2.zhimg.com/786a0100d7bc47948df50eaa2f806f35_r.jpg" alt="二次元"></p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[first-test]]></title>
+      <url>http://yoursite.com/2015/08/11/first/</url>
+      <content type="html"><![CDATA[<p>我的<a href="https://github.com/ChaosSoong" target="_blank" rel="external">github</a></p>
+]]></content>
+    </entry>
+    
+    <entry>
+      <title><![CDATA[Hello World]]></title>
+      <url>http://yoursite.com/2015/06/11/hello-world/</url>
+      <content type="html"><![CDATA[<p>Welcome to <a href="https://hexo.io/" target="_blank" rel="external">Hexo</a>! This is your very first post. Check <a href="https://hexo.io/docs/" target="_blank" rel="external">documentation</a> for more info. If you get any problems when using Hexo, you can find the answer in <a href="https://hexo.io/docs/troubleshooting.html" target="_blank" rel="external">troubleshooting</a> or you can ask me on <a href="https://github.com/hexojs/hexo/issues" target="_blank" rel="external">GitHub</a>.</p>
+<h2 id="Quick-Start"><a href="#Quick-Start" class="headerlink" title="Quick Start"></a>Quick Start</h2><h3 id="Create-a-new-post"><a href="#Create-a-new-post" class="headerlink" title="Create a new post"></a>Create a new post</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">$ hexo new <span class="string">"My New Post"</span></div></pre></td></tr></table></figure>
+<a id="more"></a>
+<p>More info: <a href="https://hexo.io/docs/writing.html" target="_blank" rel="external">Writing</a></p>
+<h3 id="Run-server"><a href="#Run-server" class="headerlink" title="Run server"></a>Run server</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">$ hexo server</div></pre></td></tr></table></figure>
+<p>More info: <a href="https://hexo.io/docs/server.html" target="_blank" rel="external">Server</a></p>
+<h3 id="Generate-static-files"><a href="#Generate-static-files" class="headerlink" title="Generate static files"></a>Generate static files</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">$ hexo generate</div></pre></td></tr></table></figure>
+<p>More info: <a href="https://hexo.io/docs/generating.html" target="_blank" rel="external">Generating</a></p>
+<h3 id="Deploy-to-remote-sites"><a href="#Deploy-to-remote-sites" class="headerlink" title="Deploy to remote sites"></a>Deploy to remote sites</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line">$ hexo deploy</div></pre></td></tr></table></figure>
+<p>More info: <a href="https://hexo.io/docs/deployment.html" target="_blank" rel="external">Deployment</a></p>
+]]></content>
+    </entry>
+    
+  
+  
+</search>
