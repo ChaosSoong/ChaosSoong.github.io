@@ -4,191 +4,56 @@
   
     
     <entry>
-      <title><![CDATA[csharp rsa密钥加密与java交互]]></title>
-      <url>http://yoursite.com/2017/09/15/csharp-rsa%E5%AF%86%E9%92%A5%E5%8A%A0%E5%AF%86%E4%B8%8Ejava%E4%BA%A4%E4%BA%92/</url>
-      <content type="html"><![CDATA[<p>自从到了深圳以后一直在忙工作，都没有空闲时间来写点什么(其实还不是因懒)前两天接手了一个项目，一个身份验证，输入身份证和姓名来验证是否认证成功，(感觉对方公司挺厉害的，需要接入公安局的数据库)talk is cheap ,show your code</p>
-<a id="more"></a>
-<h2 id="base64编码"><a href="#base64编码" class="headerlink" title="base64编码"></a>base64编码</h2><pre><code>var data = new { terminal_id = terminal_id, trade_date = &quot;20170913153750&quot;, trans_id = &quot;14744392884941238&quot;, industry_type = &quot;A1&quot;, id_holder = &quot;your_name&quot;, is_photo = &quot;photo&quot;, id_card =&quot;your_id_card&quot;, member_id = member_id };
-        var strJson = Newtonsoft.Json.JsonConvert.SerializeObject(data);
-        //base64编码字符串
-        string base64str = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(strJson)); 
-</code></pre><p>其中用到了一个库，将对象序列化。</p>
-<h2 id="rsa加密"><a href="#rsa加密" class="headerlink" title="rsa加密"></a>rsa加密</h2><p>根据密钥密码读取公钥和私钥信息：</p>
-<pre><code>X509Certificate2 cert = new X509Certificate2(pfxPath, priKeyPass, X509KeyStorageFlags.Exportable |X509KeyStorageFlags.PersistKeySet);
-            string prikey = cert.PrivateKey.ToXmlString(true);//公钥
-            string pubkey = cert.PublicKey.Key.ToXmlString(false);//私钥
-            return prikey.ToString();
-</code></pre><p>使用的也是c#提供的类库<br>using System.Security.Cryptography;<br>using System.Security.Cryptography.X509Certificates;</p>
-<p>接下来是根据加密：</p>
-<pre><code>RSACryptoServiceProvider rsa = new RSACryptoServiceProvider();
-            byte[] cipherbytes = new byte[] { };
-            rsa.FromXmlString(privateKey);
-            byte[] data = Encoding.UTF8.GetBytes(src.ToString());
-            byte[] ss = new byte[1024];
-            int length = 0;
-            for (int i = 0; i &lt; data.Length; i += 117)
-            {
-                cipherbytes = rsa.Encrypt(data.Skip(i).Take(117).ToArray(), false);
-                length += cipherbytes.Length;
-                cipherbytes.CopyTo(ss, length);
-            }
-            byte[] result = ss.Skip(128).Take(length).ToArray();
-            return result;
-</code></pre><p>如果明文过长需要分组截取数据再进行加密(这是坑！！！)</p>
-<p>然而把加密后的数据提交给对方后，返回数据解析失败，Google一系列之后，才有点眉目，他们那边是java生成的密钥，用私钥加密公钥解密。而c#正好相反，提供的类库是用公钥加密私钥解密，这就是问题所在。<br>当然有问题就要解决啦，有这样一个类库，大名鼎鼎的BouncyCastle，只是以前没有接触过<br>，私钥加密公钥解密，以下是方法：</p>
-<pre><code>public class RSAForJava
-{
-    public RSAForJava()
-    {
-    }
-    /// &lt;summary&gt;
-    /// KEY 结构体
-    /// &lt;/summary&gt;
-    public struct RSAKEY
-    {
-        /// &lt;summary&gt;
-        /// 公钥
-        /// &lt;/summary&gt;
-        public string PublicKey
-        {
-            get;
-            set;
-        }
-        /// &lt;summary&gt;
-        /// 私钥
-        /// &lt;/summary&gt;
-        public string PrivateKey
-        {
-            get;
-            set;
-        }
-    }
-    public RSAKEY GetKey()
-    {
-        //RSA密钥对的构造器  
-        RsaKeyPairGenerator keyGenerator = new RsaKeyPairGenerator();
-        //RSA密钥构造器的参数  
-        RsaKeyGenerationParameters param = new RsaKeyGenerationParameters(
-            BigInteger.ValueOf(3),
-            new SecureRandom(),
-            1024,   //密钥长度  
-            25);
-        //用参数初始化密钥构造器  
-        keyGenerator.Init(param);
-        //产生密钥对  
-        AsymmetricCipherKeyPair keyPair = keyGenerator.GenerateKeyPair();
-        //获取公钥和密钥  
-        AsymmetricKeyParameter publicKey = keyPair.Public;
-        AsymmetricKeyParameter privateKey = keyPair.Private;
-        SubjectPublicKeyInfo subjectPublicKeyInfo = SubjectPublicKeyInfoFactory.CreateSubjectPublicKeyInfo(publicKey);
-        PrivateKeyInfo privateKeyInfo = PrivateKeyInfoFactory.CreatePrivateKeyInfo(privateKey);
-        Asn1Object asn1ObjectPublic = subjectPublicKeyInfo.ToAsn1Object();
-        byte[] publicInfoByte = asn1ObjectPublic.GetEncoded(&quot;UTF-8&quot;);
-        Asn1Object asn1ObjectPrivate = privateKeyInfo.ToAsn1Object();
-        byte[] privateInfoByte = asn1ObjectPrivate.GetEncoded(&quot;UTF-8&quot;);
-        RSAKEY item = new RSAKEY()
-        {
-            PublicKey = Convert.ToBase64String(publicInfoByte),
-            PrivateKey = Convert.ToBase64String(privateInfoByte)
-        };
-        return item;
-    }
-    private AsymmetricKeyParameter GetPublicKeyParameter(string s)
-    {
-        s = s.Replace(&quot;\r&quot;, &quot;&quot;).Replace(&quot;\n&quot;, &quot;&quot;).Replace(&quot; &quot;, &quot;&quot;);
-        byte[] publicInfoByte = Convert.FromBase64String(s);
-        Asn1Object pubKeyObj = Asn1Object.FromByteArray(publicInfoByte);//这里也可以从流中读取，从本地导入   
-        AsymmetricKeyParameter pubKey = PublicKeyFactory.CreateKey(publicInfoByte);
-        return pubKey;
-    }
-    private AsymmetricKeyParameter GetPrivateKeyParameter(string s)
-    {
-        s = s.Replace(&quot;\r&quot;, &quot;&quot;).Replace(&quot;\n&quot;, &quot;&quot;).Replace(&quot; &quot;, &quot;&quot;);
-        byte[] privateInfoByte = Convert.FromBase64String(s);
-        // Asn1Object priKeyObj = Asn1Object.FromByteArray(privateInfoByte);//这里也可以从流中读取，从本地导入   
-        // PrivateKeyInfo privateKeyInfo = PrivateKeyInfoFactory.CreatePrivateKeyInfo(privateKey);
-        AsymmetricKeyParameter priKey = PrivateKeyFactory.CreateKey(privateInfoByte);
-        return priKey;
-    }
-    public string EncryptByPrivateKey(string s, string key)
-    {
-        //非对称加密算法，加解密用  
-        IAsymmetricBlockCipher engine = new Pkcs1Encoding(new RsaEngine());
-        //加密  
-        try
-        {
-            engine.Init(true, GetPrivateKeyParameter(key));
-            byte[] byteData = System.Text.Encoding.UTF8.GetBytes(s);
-            var ResultData = engine.ProcessBlock(byteData, 0, byteData.Length);
-            return Convert.ToBase64String(ResultData);
-            //Console.WriteLine(&quot;密文（base64编码）:&quot; + Convert.ToBase64String(testData) + Environment.NewLine);
-        }
-        catch (Exception ex)
-        {
-            return ex.Message;
-        }
-    }
-    public string DecryptByPublicKey(string s, string key)
-    {
-        s = s.Replace(&quot;\r&quot;, &quot;&quot;).Replace(&quot;\n&quot;, &quot;&quot;).Replace(&quot; &quot;, &quot;&quot;);
-        //非对称加密算法，加解密用  
-        IAsymmetricBlockCipher engine = new Pkcs1Encoding(new RsaEngine());
-        //解密  
-        try
-        {
-            engine.Init(false, GetPublicKeyParameter(key));
-            byte[] byteData = Convert.FromBase64String(s);
-            var ResultData = engine.ProcessBlock(byteData, 0, byteData.Length);
-            return Encoding.UTF8.GetString(ResultData);
-        }
-        catch (Exception ex)
-        {
-            return ex.Message;
-        }
-    }
-}
-</code></pre><p>所以更改之后加密方法是这样的：</p>
-<pre><code>//加载私钥  
-        RSACryptoServiceProvider privateRsa = new RSACryptoServiceProvider();
-        privateRsa.FromXmlString(xmlPrivateKey);
-        //转换密钥  
-        AsymmetricCipherKeyPair keyPair = DotNetUtilities.GetKeyPair(privateRsa);
-        IBufferedCipher c = CipherUtilities.GetCipher(&quot;RSA/ECB/PKCS1Padding&quot;);
-        c.Init(true, keyPair.Private);
-        byte[] DataToEncrypt = Encoding.UTF8.GetBytes(strEncryptString);
-        byte[] cipherbytes = new byte[] { };
-        byte[] ss = new byte[1024];
-        int length = 0;
-        for (int i = 0; i &lt; DataToEncrypt.Length; i += 117)
-        {
-            cipherbytes = c.DoFinal(DataToEncrypt.Skip(i).Take(117).ToArray());
-            length += cipherbytes.Length;
-            cipherbytes.CopyTo(ss, length);
-        }
-        byte[] result = ss.Skip(128).Take(length).ToArray();
-        string str = byte2Hex(result);
-        return str;
-</code></pre><p>其中加密之后是字节数组result，需要把它转化成16进制字符串：</p>
-<pre><code>private static string byte2Hex(byte[] bytes)
-   {
-       string returnStr = &quot;&quot;;
-       if (bytes != null)
-       {
-           for (int i = 0; i &lt; bytes.Length; i++)
-           {
-               returnStr += bytes[i].ToString(&quot;X2&quot;);
-           }
-       }
-       return returnStr;
-   }
-</code></pre><h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>其实就是rsa加密算法java和c#交互问题，c#客户端和java服务器端。</p>
+      <title><![CDATA[前端经典面试题(代码篇)]]></title>
+      <url>http://yoursite.com/2019/01/23/%E5%89%8D%E7%AB%AF%E7%BB%8F%E5%85%B8%E9%A2%98%E7%9B%AE/</url>
+      <content type="html"><![CDATA[<pre><code>在面试前端开发中，原生JavaScript能力的高低是占比很大的一个体现部分，不少考官会有要求现场写一些JS方法，以下整理了一些前端面试的各种方法，希望能帮到你。
+</code></pre><a id="more"></a>
 <ol>
-<li>将数据进行base64编码</li>
-<li>c#端根据java端传来的密钥及其密码提取私钥信息</li>
-<li>c#端使用私钥进行加密，这里不能用自带的rsa类库加密算法，因为它只能用公钥加密私钥解密，需要使用第三方库BouncyCastle</li>
-<li>将加密结果转化为16进制字符串，post提交，ok</li>
+<li>promise的实现</li>
 </ol>
-<p>文章写得不好，看到的还请谅解，一起学习进步。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div></pre></td><td class="code"><pre><div class="line">class IPromise &#123;</div><div class="line">      callbacks = [];</div><div class="line">      failbacks = [];</div><div class="line">      constructor(fn) &#123;</div><div class="line">          fn(this.resolve.bind(this), this.reject.bind(this));</div><div class="line">      &#125;</div><div class="line">      resolve(res) &#123;</div><div class="line">          if (this.callbacks.length &gt; 0) this.callbacks.shift()(res, this.resolve.bind(this), this.reject.bind(this));</div><div class="line">      &#125;</div><div class="line">      reject(res) &#123;</div><div class="line">          this.callbacks = [];</div><div class="line">          if (this.failbacks.length &gt; 0) this.failbacks.shift()(res, this.resolve.bind(this), this.reject.bind(this));</div><div class="line">      &#125;</div><div class="line">      catch(fn) &#123;</div><div class="line">          this.failbacks.push(fn);</div><div class="line">      &#125;</div><div class="line">      then(fn) &#123;</div><div class="line">          this.callbacks.push(fn);</div><div class="line">          return this;</div><div class="line">      &#125;</div></pre></td></tr></table></figure>
+<ol>
+<li>bind的实现</li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div></pre></td><td class="code"><pre><div class="line">Function.prototype.mybind = function () &#123;</div><div class="line">    var self = this,args = arguments;</div><div class="line">    return function () &#123;</div><div class="line">        self.apply(args);</div><div class="line">    &#125;</div><div class="line"></div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<ol>
+<li>函数防抖</li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line">// func是用户传入需要防抖的函数</div><div class="line">// wait是等待时间</div><div class="line">const debounce = (func, wait = 50) =&gt; &#123;</div><div class="line">  // 缓存一个定时器id</div><div class="line">  let timer = 0</div><div class="line">  // 这里返回的函数是每次用户实际调用的防抖函数</div><div class="line">  // 如果已经设定过定时器了就清空上一次的定时器</div><div class="line">  // 开始一个新的定时器，延迟执行用户传入的方法</div><div class="line">  return function(...args) &#123;</div><div class="line">    if (timer) clearTimeout(timer)</div><div class="line">    timer = setTimeout(() =&gt; &#123;</div><div class="line">      func.apply(this, args)</div><div class="line">    &#125;, wait)</div><div class="line">  &#125;</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<ol>
+<li>函数节流</li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">function throttle(method,delay)&#123;</div><div class="line">    var timer=null;</div><div class="line">    return function()&#123;</div><div class="line">        var context=this, args=arguments;</div><div class="line">        if(timer) return;</div><div class="line">        timer=setTimeout(function()&#123;</div><div class="line">            method.apply(context,args);</div><div class="line">            timer = null;</div><div class="line">        &#125;,delay);</div><div class="line">    &#125;</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<ol>
+<li>深拷贝</li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div></pre></td><td class="code"><pre><div class="line">function deepClone(obj) &#123;</div><div class="line">    let result = typeof  obj.splice === &quot;function&quot; ? [] : &#123;&#125;;</div><div class="line">    if (obj &amp;&amp; typeof obj === &apos;object&apos;) &#123;</div><div class="line">        for (let key in obj) &#123;</div><div class="line">            if (obj[key] &amp;&amp; typeof obj[key] === &apos;object&apos;) &#123;</div><div class="line">                result[key] = deepClone(obj[key]);//如果对象的属性值为object的时候，递归调用deepClone。</div><div class="line">            &#125; else &#123;</div><div class="line">                result[key] = obj[key];//如果对象的属性值不为object的时候，直接复制参数对象的每一个键值到新的对象对应的键值对中。</div><div class="line">            &#125;</div><div class="line"></div><div class="line">        &#125;</div><div class="line">        return result;</div><div class="line">    &#125;</div><div class="line">    return obj;</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<ol>
+<li>单例模式</li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div></pre></td><td class="code"><pre><div class="line">function A(name)&#123;</div><div class="line">    // 如果已存在对应的实例</div><div class="line">   if(typeof A.instance === &apos;object&apos;)&#123;</div><div class="line">       return A.instance</div><div class="line">   &#125;</div><div class="line">   //否则正常创建实例</div><div class="line">   this.name = name</div><div class="line">   </div><div class="line">   // 缓存</div><div class="line">   A.instance =this</div><div class="line">   return this</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<ol>
+<li>发布订阅模式</li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div></pre></td><td class="code"><pre><div class="line">// 事件类</div><div class="line"> class EventEmitter &#123;</div><div class="line">     constructor () &#123;</div><div class="line">         this.events = &#123; &#125; // 事件队列，保存着每一种事件的处理程序</div><div class="line">     &#125;</div><div class="line"> </div><div class="line">     on (type, callback) &#123; // type 要绑定的事件名字， callback 处理程序</div><div class="line">         if (this.events[type]) &#123;// 如果事件队列中有这个事件</div><div class="line">             // 将此次绑定的处理程序放入进去</div><div class="line">             this.events[type].push(callback.bind(this))</div><div class="line">             return false</div><div class="line">         &#125;</div><div class="line">         // 如果没有这个事件，新建</div><div class="line">         this.events[type] = [callback.bind(this)]</div><div class="line">     &#125;</div><div class="line"> </div><div class="line">     emit (type, ...args) &#123;</div><div class="line">         // 触发事件的时候如果没有事件，报错</div><div class="line">         if (!this.events[type]) &#123;</div><div class="line">             console.error(&apos;type event is not found&apos;)</div><div class="line">         &#125;else &#123;</div><div class="line">             // 挨个执行队列中的处理程序</div><div class="line">             this.events[type].forEach(callback =&gt; &#123;</div><div class="line">                 callback(...args)</div><div class="line">             &#125;);</div><div class="line">         &#125;</div><div class="line">     &#125;</div><div class="line"> &#125;</div><div class="line"> </div><div class="line"> let bus = new EventEmitter()</div><div class="line"> </div><div class="line"> bus.on(&apos;play&apos;, (num1, num2) =&gt; &#123;</div><div class="line">     alert(456)</div><div class="line">     alert(num1 + num2)</div><div class="line"> &#125;)</div><div class="line"> </div><div class="line"> bus.emit(&apos;play&apos;, 1, 2)</div></pre></td></tr></table></figure>
+<ol>
+<li>new的实现</li>
+</ol>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div></pre></td><td class="code"><pre><div class="line">function create() &#123;</div><div class="line">    // 创建一个空的对象</div><div class="line">    let obj = new Object()</div><div class="line">    // 获得构造函数</div><div class="line">    let Con = [].shift.call(arguments)</div><div class="line">    // 链接到原型</div><div class="line">    obj.__proto__ = Con.prototype</div><div class="line">    // 绑定 this，执行构造函数</div><div class="line">    let result = Con.apply(obj, arguments)</div><div class="line">    // 确保 new 出来的是个对象</div><div class="line">    return typeof result === &apos;object&apos; ? result : obj</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<ol>
+<li><p>闭包：访问函数内部变量的函数</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div></pre></td><td class="code"><pre><div class="line">function A() &#123;    </div><div class="line">	var count = 0;    </div><div class="line">	function B() &#123;       </div><div class="line">		count ++;       </div><div class="line">		console.log(count);    </div><div class="line">	&#125;    </div><div class="line">	return B;</div><div class="line">&#125;</div><div class="line">var C = A();</div><div class="line">C();// 1</div><div class="line">C();// 2</div><div class="line">C();// 3</div></pre></td></tr></table></figure>
+</li>
+<li><p>冒泡排序</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div></pre></td><td class="code"><pre><div class="line">function bubbleSort(arr) &#123;</div><div class="line">    let len = arr.length;</div><div class="line">    for (var i = 0; i &lt; len; i++) &#123;</div><div class="line">        for (var j = 0; j &lt; len - 1 - i; j++) &#123;</div><div class="line">            if (arr[j] &gt; arr[j+1]) &#123;        //相邻元素两两对比</div><div class="line">                [arr[j], arr[j+1]] = [arr[j+1], arr[j]];        //元素交换</div><div class="line">            &#125;</div><div class="line">        &#125;</div><div class="line">    &#125;</div><div class="line">    return arr;</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+</li>
+<li><p>快排</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div></pre></td><td class="code"><pre><div class="line">function quickSort(arr)&#123;</div><div class="line">    //如果数组&lt;=1,则直接返回</div><div class="line">    if(arr.length &lt;= 1) &#123; return arr; &#125;</div><div class="line">    var pivotIndex = Math.floor(arr.length/2);</div><div class="line">    //找基准，并把基准从原数组删除</div><div class="line">    var pivot=arr.splice(pivotIndex, 1)[0];</div><div class="line">    //定义左右数组</div><div class="line">    var left=[];</div><div class="line">    var right=[];</div><div class="line">    //比基准小的放在left，比基准大的放在right</div><div class="line">    for(var i=0; i&lt;arr.length; i++)&#123;</div><div class="line">	    if(arr[i]&lt;=pivot)&#123;</div><div class="line">	          left.push(arr[i]);</div><div class="line">	    &#125;else&#123;</div><div class="line">	          right.push(arr[i]);</div><div class="line">	    &#125;</div><div class="line">    &#125;</div><div class="line">    //递归</div><div class="line">    return quickSort(left).concat([pivot],quickSort(right));</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+</li>
+<li><p>数组去重</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div></pre></td><td class="code"><pre><div class="line">let arr = [1,1,2,3,4,4,4]</div><div class="line">let result1 = arr.filter((val, key, self) =&gt; self.indexOf(val) === key)</div><div class="line"></div><div class="line">let result2 = [...new Set(arr)]</div><div class="line"></div><div class="line">let result2 = Array.from(new Set(arr))</div></pre></td></tr></table></figure>
+</li>
+</ol>
 ]]></content>
     </entry>
     
